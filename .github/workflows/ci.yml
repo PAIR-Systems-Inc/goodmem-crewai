@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: lint + test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --extra dev --python ${{ matrix.python-version }}
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format check
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy src
+
+      - name: pytest
+        run: uv run pytest -m "not e2e"
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - name: Verify wheel installs in a clean env
+        run: |
+          uv venv .venv-smoke --python ${{ matrix.python-version }}
+          uv pip install --python .venv-smoke/bin/python dist/crewai_goodmem-*.whl
+          .venv-smoke/bin/python -c "from crewai_goodmem import GoodMemRetrieveMemoriesTool, __version__; print(f'crewai-goodmem {__version__} OK')"
