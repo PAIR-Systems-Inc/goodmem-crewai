@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-04-28
+
 ### Changed
 - Drop Python 3.10 support. The transitive `onnxruntime` dependency (via
   `crewai → chromadb`) no longer ships 3.10 wheels in current versions, so
   installs failed in practice. Supported versions are now 3.11 / 3.12 / 3.13.
 
 ### Fixed
+- README install banner correctly states the supported Python range.
 - Pin `UV_PYTHON` per CI matrix entry so `uv run` doesn't silently rebuild
   the venv against `.python-version` instead of the matrix Python.
 
@@ -29,5 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apache 2.0 license, type stubs (PEP 561), and full type annotations.
 - Mocked unit-test suite covering every tool.
 
-[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/releases/tag/v0.1.0
