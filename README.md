@@ -16,7 +16,7 @@ pip install crewai-goodmem
 uv add crewai-goodmem
 ```
 
-Python 3.10–3.13 supported. The only runtime dependencies are `crewai` and
+Python 3.11–3.13 supported. The only runtime dependencies are `crewai` and
 `requests`.
 
 ## Quickstart

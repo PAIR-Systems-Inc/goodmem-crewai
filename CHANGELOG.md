@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Drop Python 3.10 support. The transitive `onnxruntime` dependency (via
+  `crewai → chromadb`) no longer ships 3.10 wheels in current versions, so
+  installs failed in practice. Supported versions are now 3.11 / 3.12 / 3.13.
+
+### Fixed
+- Pin `UV_PYTHON` per CI matrix entry so `uv run` doesn't silently rebuild
+  the venv against `.python-version` instead of the matrix Python.
+
 ## [0.1.0] — 2026-04-27
 
 ### Added
