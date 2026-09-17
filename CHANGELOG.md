@@ -7,31 +7,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1] — 2026-04-28
+## [0.2.0] — 2026-09-17
 
-### Changed
-- Drop Python 3.10 support. The transitive `onnxruntime` dependency (via
-  `crewai → chromadb`) no longer ships 3.10 wheels in current versions, so
-  installs failed in practice. Supported versions are now 3.11 / 3.12 / 3.13.
+0.2 is a deliberate API break. The integration now uses the official `goodmem`
+SDK and adds `GoodMemKnowledgeStorage`, so GoodMem can back CrewAI's own
+`Knowledge` instead of only being reachable through standalone tools.
+Requires CrewAI 1.15+.
 
 ### Fixed
-- README install banner correctly states the supported Python range.
-- Pin `UV_PYTHON` per CI matrix entry so `uv run` doesn't silently rebuild
-  the venv against `.python-version` instead of the matrix Python.
 
-## [0.1.0] — 2026-04-27
+- **A failed search no longer looks like a successful one.** Retrieval statuses
+  were parsed and discarded. Asking for reranking with an unavailable reranker
+  returned unreranked chunks and reported success; a `VECTOR_SEARCH_FAILED`
+  covering one of two spaces was indistinguishable from a complete search, and
+  a truncated NDJSON line was skipped in silence. Results now carry `partial`
+  and `statuses`, and a search that produced nothing usable returns a
+  `ToolFailure`.
+- **Statuses from a newer server no longer break retrieval.** The SDK decodes
+  codes it does not know as `None`. Those are reported as `UNKNOWN` and mark
+  results partial; they never discard chunks and never raise.
+- **`public_read` is gone.** GoodMem removed the field from spaces, and sending
+  it failed the whole update with HTTP 400.
+- **Searching no longer polls.** `wait_for_indexing` retried empty searches for
+  up to 10 seconds, so querying an empty space cost 12.2s instead of 0.3s.
+  Create-memory waits for its own memory instead, and `wait_for_memories`
+  waits on specific IDs. Searching is not a way to wait for indexing.
+- **Listing follows pagination.** Space, embedder and memory listings read only
+  the server's first page and reported that count as the total. Create-space
+  also used that truncated list to decide a name already existed.
+- **Create-space no longer returns a space with the wrong embedder.** Asking
+  for a name that already existed returned the existing space, silently
+  ignoring the requested embedder and reporting success. Creation now creates,
+  and a name collision is reported as a conflict.
+- **File uploads are confined to a configured directory.** `file_path` was
+  model-chosen and unrestricted: an agent could read any file the process
+  could, including the caller's own GoodMem credentials, and store it. Uploads
+  moved to a separate opt-in `GoodMemUploadFileTool` that requires
+  `upload_dir` and rejects paths and symlinks resolving outside it.
+- **API keys are no longer serialized.** The key was a plain string field and
+  appeared in `model_dump()` and `repr()`. It is a `SecretStr` excluded from
+  dumps.
+- **Get-memory returns readable text in one request.** It made a second call
+  for content and returned `success: true` with the content missing when that
+  call failed. Content now arrives with the metadata, is decoded using the
+  declared charset, and binary content is described rather than dumped as
+  base64.
+- **Chunks are joined to their sources.** Chunks and memory definitions were
+  returned as two unrelated arrays for the model to correlate. They are joined
+  by UUID regardless of event order, deduplicated by chunk ID so two passages
+  from one document remain two results.
+- **Errors reach the framework.** Failures were `{"success": false}` JSON
+  strings, which CrewAI's failure tracking cannot see. Tools return
+  `ToolFailure`, so failures appear on `TaskOutput.tool_failures` and the event
+  bus, and `tool_failure_policy` applies.
+
+### Changed
+
+- **Search exposes only `query` to the model.** It previously accepted twelve
+  arguments including `poll_interval`, `llm_temperature`, `relevance_threshold`
+  and arbitrary `space_ids`. Spaces, reranking and filters are configured by
+  the developer on the tool.
+- `relevance_threshold` was documented as a 0-1 score. Real GoodMem vector
+  scores are opaque and may be negative (a live capture returned `-0.5345`).
+  `GoodMemKnowledgeStorage` applies `score_threshold` only when a reranker
+  produced the scores, warns otherwise, and records `score_kind` on every
+  result.
+- Chunking configuration is set by the developer, not chosen by the model.
+- `crewai_goodmem.filters` builds metadata filter expressions with escaping
+  the server actually accepts (backslash; SQL `''` doubling is rejected) and
+  refuses field names and control characters it cannot encode safely.
+- `wait_for_memories_completed` is now `wait_for_memories`.
 
 ### Added
-- Initial release.
-- Eleven CrewAI tools covering the GoodMem v1 REST surface: embedders, spaces
-  (CRUD), memories (CRUD), and semantic retrieval with optional reranking, LLM
-  summarization, and SQL-style JSONPath metadata filtering.
-- `wait_for_memories_completed(memory_ids, *, timeout, interval, ...)` helper
-  that polls each memory's `processingStatus` until it reaches a terminal
-  state, replacing blind `time.sleep` waits in the example and live test.
-- Apache 2.0 license, type stubs (PEP 561), and full type annotations.
-- Mocked unit-test suite covering every tool.
 
-[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.1...HEAD
+- `GoodMemKnowledgeStorage`, a `BaseKnowledgeStorage` implementation, so
+  `Knowledge(storage=...)` can search and store through GoodMem. Async methods
+  run the synchronous SDK on a worker thread. `reset()` requires
+  `allow_reset=True` rather than silently deleting a space's contents — or
+  silently doing nothing.
+- `GoodMemListRerankersTool`, so an agent can discover reranker IDs.
+- Connection injection: pass `client=Goodmem(...)` to share a pool or supply
+  custom TLS. An injected client is authoritative; environment variables
+  cannot redirect it.
+
+### Migration from 0.1
+
+| 0.1 | 0.2 |
+| --- | --- |
+| `GoodMemRetrieveMemoriesTool(query=…, space_ids=[…], …)` | `GoodMemSearchTool(space_ids=[…], k=…)`; the model passes only `query` |
+| `wait_for_indexing` on search | Removed. Create waits for its own memory; use `wait_for_memories` for specific IDs |
+| `public_read` on update-space | Removed; use authorization grants |
+| `file_path` on create-memory | `GoodMemUploadFileTool` with `upload_dir` |
+| `{"success": false, "error": …}` | `ToolFailure`, handled by `tool_failure_policy` |
+| `wait_for_memories_completed(...)` | `wait_for_memories(...)` |
+| Create-space reused a same-named space | Creation creates; a collision is a conflict |
+| `requests` | the official `goodmem` SDK |
+
+[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/releases/tag/v0.1.0
