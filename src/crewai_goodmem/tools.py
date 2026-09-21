@@ -143,7 +143,7 @@ class GoodMemSearchTool(_GoodMemBaseTool):
         try:
             with self._session() as client:
                 events = list(client.memories.retrieve(**kwargs))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Search failed")
 
         statuses, degraded = classify(events)
@@ -198,7 +198,7 @@ class GoodMemListSpacesTool(_GoodMemBaseTool):
                     s.model_dump(exclude_none=True)
                     for s in client.spaces.list(max_items=self.max_items)
                 ]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to list spaces")
         return json.dumps(
             {
@@ -224,7 +224,7 @@ class GoodMemListEmbeddersTool(_GoodMemBaseTool):
                     e.model_dump(exclude_none=True)
                     for e in client.embedders.list(max_items=self.max_items)
                 ]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to list embedders")
         return json.dumps({"embedders": items, "returned": len(items)}, default=str)
 
@@ -242,7 +242,7 @@ class GoodMemListRerankersTool(_GoodMemBaseTool):
                     r.model_dump(exclude_none=True)
                     for r in client.rerankers.list(max_items=self.max_items)
                 ]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to list rerankers")
         return json.dumps({"rerankers": items, "returned": len(items)}, default=str)
 
@@ -264,7 +264,7 @@ class GoodMemGetSpaceTool(_GoodMemBaseTool):
                     client.spaces.get(id=space_id).model_dump(exclude_none=True),
                     default=str,
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to get space")
 
 
@@ -313,7 +313,7 @@ class GoodMemCreateSpaceTool(_GoodMemBaseTool):
                 retryable=False,
                 details={"server_response": str(getattr(exc, "body", ""))[:500]},
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to create space")
 
 
@@ -371,7 +371,7 @@ class GoodMemUpdateSpaceTool(_GoodMemBaseTool):
             with self._session() as client:
                 space = client.spaces.update(id=space_id, request=request)
             return json.dumps(space.model_dump(exclude_none=True), default=str)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to update space")
 
 
@@ -391,7 +391,7 @@ class GoodMemDeleteSpaceTool(_GoodMemBaseTool):
             with self._session() as client:
                 client.spaces.delete(id=space_id)
             return json.dumps({"deleted": True, "space_id": space_id})
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to delete space")
 
 
@@ -440,7 +440,7 @@ class GoodMemCreateMemoryTool(_GoodMemBaseTool):
                 {"memory_id": memory_id, "space_id": self.space_id, "status": status},
                 default=str,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # If the write was accepted and only the wait failed, say so, so
             # the caller checks status instead of writing a duplicate.
             return _failure(
@@ -539,7 +539,7 @@ class GoodMemUploadFileTool(_GoodMemBaseTool):
                 },
                 default=str,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(
                 exc,
                 "Failed to upload file",
@@ -578,7 +578,7 @@ class GoodMemListMemoriesTool(_GoodMemBaseTool):
                     max_items=self.max_items,
                 )
                 memories = [m.model_dump(exclude_none=True) for m in page]
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to list memories")
         return json.dumps(
             {
@@ -628,7 +628,7 @@ class GoodMemGetMemoryTool(_GoodMemBaseTool):
                 memory = client.memories.get(
                     id=memory_id, include_content=include_content or None
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to get memory")
 
         payload = memory.model_dump(exclude_none=True)
@@ -672,7 +672,7 @@ class GoodMemDeleteMemoryTool(_GoodMemBaseTool):
             with self._session() as client:
                 client.memories.delete(id=memory_id)
             return json.dumps({"deleted": True, "memory_id": memory_id})
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return _failure(exc, "Failed to delete memory")
 
 
