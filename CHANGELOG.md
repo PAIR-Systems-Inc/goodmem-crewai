@@ -68,10 +68,13 @@ Requires CrewAI 1.15+.
   and arbitrary `space_ids`. Spaces, reranking and filters are configured by
   the developer on the tool.
 - `relevance_threshold` was documented as a 0-1 score. Real GoodMem vector
-  scores are opaque and may be negative (a live capture returned `-0.5345`).
-  `GoodMemKnowledgeStorage` applies `score_threshold` only when a reranker
-  produced the scores, warns otherwise, and records `score_kind` on every
-  result.
+  scores are negative inner products (a live capture returned `-0.5345`; the
+  best match is the lowest number). `GoodMemKnowledgeStorage` now presents
+  `score` under CrewAI's higher-is-better convention by negating vector
+  scores — reranker scores are left as they are — and keeps the server value
+  as `metadata["raw_score"]` with `metadata["score_kind"]` naming the scale.
+  Neither scale is 0-1, so `score_threshold` is applied only when a reranker
+  produced the scores, with a warning otherwise.
 - Chunking configuration is set by the developer, not chosen by the model.
 - `crewai_goodmem.filters` builds metadata filter expressions with escaping
   the server actually accepts (backslash; SQL `''` doubling is rejected) and

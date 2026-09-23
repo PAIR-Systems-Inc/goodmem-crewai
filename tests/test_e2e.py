@@ -195,6 +195,11 @@ def test_knowledge_storage_round_trip(space, conn):
     assert results, "knowledge storage found nothing it had just saved"
     assert "Ada Lovelace" in results[0]["content"]
     assert results[0]["metadata"]["score_kind"] == "vector"
+    # The live server's vector score is a negative inner product; CrewAI's
+    # SearchResult.score is higher-is-better, so the sign is flipped and the
+    # server value kept alongside.
+    assert results[0]["metadata"]["raw_score"] < 0
+    assert results[0]["score"] == -results[0]["metadata"]["raw_score"]
     assert results[0]["id"], "a stable chunk id is required"
 
 

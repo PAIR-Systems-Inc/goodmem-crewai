@@ -257,12 +257,15 @@ def test_developer_configuration_is_not_model_reachable(client, recorder):
 
 
 # ---------------------------------------------------------------- P29
-def test_real_vector_scores_are_negative_and_survive_untouched(client, recorder):
+def test_real_vector_scores_are_presented_higher_is_better(client, recorder):
     """live capture: a real vector relevanceScore is -0.5345.
 
-    CrewAI documents score as 'higher is better, typically 0-1' and defaults
-    score_threshold to 0.6. Applying that to a raw vector score would discard
-    every result, so it is only applied when a reranker produced the scores.
+    CrewAI documents score as 'higher is better, typically 0-1'. The server's
+    vector score is a negative inner product (best match = lowest number), so
+    it is negated to honour the host convention, and the raw value is kept in
+    metadata. It is still not 0-1: CrewAI's default score_threshold of 0.6
+    applied to it would be arbitrary, so the threshold is only applied when a
+    reranker produced the scores.
     """
     recorder.route(
         "POST", ":retrieve", ndjson(memory_event("m1"), chunk_event("c1", "text", "m1"))
@@ -272,8 +275,44 @@ def test_real_vector_scores_are_negative_and_survive_untouched(client, recorder)
         results = storage.search(["q"], limit=5, score_threshold=0.6)
 
     assert len(results) == 1, "a negative vector score is not a reason to drop a hit"
-    assert results[0]["score"] == REAL_VECTOR_SCORE
+    assert results[0]["score"] == -REAL_VECTOR_SCORE
+    assert results[0]["score"] > 0
+    assert results[0]["metadata"]["raw_score"] == REAL_VECTOR_SCORE
     assert results[0]["metadata"]["score_kind"] == "vector"
+
+
+def test_vector_negation_keeps_server_order_sortable(client, recorder):
+    """Two real-shaped hits in server order: the better one has the lower raw
+    score. After negation, sorting by score descending agrees with the
+    server, which is what a caller reading SearchResult.score expects."""
+    recorder.route(
+        "POST",
+        ":retrieve",
+        ndjson(
+            memory_event("m1"),
+            chunk_event("c1", "best", "m1", score=-0.6154),
+            chunk_event("c2", "worse", "m1", score=-0.3873),
+        ),
+    )
+    storage = GoodMemKnowledgeStorage(client=client, space_id="s1")
+    with pytest.warns(UserWarning):
+        results = storage.search(["q"], limit=5, score_threshold=0.6)
+    assert [r["content"] for r in results] == ["best", "worse"]
+    scores = [r["score"] for r in results]
+    assert scores == sorted(scores, reverse=True)
+    assert [r["metadata"]["raw_score"] for r in results] == [-0.6154, -0.3873]
+
+
+def test_reranker_scores_are_not_negated(client, recorder):
+    recorder.route(
+        "POST",
+        ":retrieve",
+        ndjson(memory_event("m1"), chunk_event("c1", "strong", "m1", score=0.91)),
+    )
+    storage = GoodMemKnowledgeStorage(client=client, space_id="s1", reranker_id="rr")
+    results = storage.search(["q"], limit=5, score_threshold=0.0)
+    assert results[0]["score"] == 0.91
+    assert results[0]["metadata"]["raw_score"] == 0.91
 
 
 def test_threshold_applies_when_a_reranker_produced_the_scores(client, recorder):

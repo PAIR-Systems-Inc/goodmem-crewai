@@ -27,6 +27,20 @@ class GoodMemIngestionError(RuntimeError):
         self.created_memory_ids = created_memory_ids or []
 
 
+def _host_score(hit: dict[str, Any]) -> float:
+    """Present a hit's score under CrewAI's higher-is-better convention.
+
+    A GoodMem vector score is a negative inner product: the closest match is
+    the most negative number (a live capture ranked -0.6154 above -0.3873).
+    Negating it yields a plain similarity that sorts the way ``SearchResult``
+    documents. A reranker score already does, and is left alone. The server
+    value stays available as ``metadata["raw_score"]``.
+    """
+    # The SDK types relevance_score as a required float; there is no None case.
+    score = float(hit["score"])
+    return -score if hit["score_kind"] == "vector" else score
+
+
 class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
     """Back CrewAI ``Knowledge`` with a GoodMem space.
 
@@ -36,11 +50,14 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
         storage = GoodMemKnowledgeStorage(space_id="…", reranker_id="…")
         knowledge = Knowledge(collection_name="docs", sources=[], storage=storage)
 
-    Scores are reported exactly as GoodMem returns them. A vector score is an
-    opaque similarity that may be negative and is not on a 0-1 scale, so
-    ``score_threshold`` is only applied when ``reranker_id`` is configured and
-    the scores are genuine relevance values. Results keep the server's
-    ordering; they are not re-sorted client-side.
+    ``score`` follows CrewAI's convention that higher is better. GoodMem's
+    vector score is a negative inner product -- the best match is the *lowest*
+    number -- so it is negated here; a reranker score already runs the right
+    way and is passed through. The untouched server value is kept as
+    ``metadata["raw_score"]`` and ``metadata["score_kind"]`` says which scale
+    it is. Neither is 0-1, so ``score_threshold`` is only applied when
+    ``reranker_id`` is configured and the scores are genuine relevance values.
+    Results keep the server's ordering; they are not re-sorted client-side.
 
     Async methods run the synchronous SDK on a worker thread, so they do not
     block the event loop.
@@ -145,6 +162,7 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                 space_id=hit["space_id"],
                 source=hit["source"],
                 score_kind=hit["score_kind"],
+                raw_score=hit["score"],
             )
             if all_statuses:
                 # The caller gets the results AND the fact that they may be
@@ -157,7 +175,7 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                     "id": hit["chunk_id"],
                     "content": hit["chunk_text"],
                     "metadata": metadata,
-                    "score": hit["score"],
+                    "score": _host_score(hit),
                 }
             )
         return results

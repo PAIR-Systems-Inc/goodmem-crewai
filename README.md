@@ -87,10 +87,15 @@ its own memory by default; use `wait_for_memories(ids)` to wait on specific IDs.
 
 ## Scores
 
-GoodMem vector scores are opaque similarities that may be negative — they are
-not 0–1 relevance. They are passed through unchanged, with `score_kind` naming
-their origin. `score_threshold` is applied only when a reranker produced the
-scores; without one it is ignored with a warning.
+CrewAI's `SearchResult.score` is documented as higher-is-better. GoodMem's
+vector score is a negative inner product — the best match is the *lowest*
+number (a live capture ranked `-0.6154` above `-0.3873`) — so it is negated to
+fit that convention; a reranker score already runs the right way and is passed
+through. The untouched server value is kept as `metadata["raw_score"]`, and
+`metadata["score_kind"]` (`"vector"` or `"reranker"`) names the scale.
+
+Neither scale is 0–1. `score_threshold` is therefore applied only when a
+reranker produced the scores; without one it is ignored with a warning.
 
 ## Development
 
