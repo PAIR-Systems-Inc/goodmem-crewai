@@ -149,24 +149,14 @@ class GoodMemSearchTool(_GoodMemBaseTool):
         statuses, degraded = classify(events)
         hits = hits_from_events(events, reranked=reranked)[: self.k]
 
-        # A search that failed outright must not be mistaken for one that
-        # simply found nothing.
-        if degraded and not hits:
-            return ToolFailure(
-                message="Search failed: "
-                + "; ".join(f"{s.get('code')}: {s.get('message')}" for s in statuses),
-                reason=ToolFailureReason.TOOL_REPORTED,
-                code="retrieval_failed",
-                retryable=True,
-                details={"statuses": json.dumps(statuses)[:1000]},
-            )
-
         payload: dict[str, Any] = {
             "query": query,
             "results": hits,
             "total_results": len(hits),
-            # True when some part of the search did not complete: the results
-            # below are usable but incomplete.
+            # True when the server reported a real problem during the search.
+            # With hits, they are usable but may be incomplete; with none, the
+            # search failed rather than found nothing. Never raised: the model
+            # reads `statuses` and decides. (Retrieval status contract.)
             "partial": degraded,
         }
         if statuses:

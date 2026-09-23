@@ -21,8 +21,11 @@ Requires CrewAI 1.15+.
   returned unreranked chunks and reported success; a `VECTOR_SEARCH_FAILED`
   covering one of two spaces was indistinguishable from a complete search, and
   a truncated NDJSON line was skipped in silence. Results now carry `partial`
-  and `statuses`, and a search that produced nothing usable returns a
-  `ToolFailure`.
+  and `statuses`; a search that produced nothing usable returns empty results
+  with `partial: true` rather than an empty success, and is never raised.
+- **`FEATURE_DISABLED` is informational by its code alone.** The server
+  defines it as "feature disabled due to missing configuration", so it never
+  means a requested feature was lost; the details are not inspected.
 - **Statuses from a newer server no longer break retrieval.** The SDK decodes
   codes it does not know as `None`. Those are reported as `UNKNOWN` and mark
   results partial; they never discard chunks and never raise.

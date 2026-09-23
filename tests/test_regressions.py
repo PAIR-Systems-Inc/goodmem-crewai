@@ -83,8 +83,13 @@ def test_failed_reranking_is_not_reported_as_success(client, recorder):
     assert payload["total_results"] == 1, "usable chunks are still returned"
 
 
-def test_total_failure_becomes_a_tool_failure(client, recorder):
-    """mock: VECTOR_SEARCH_FAILED with no usable chunk must not look empty."""
+def test_total_failure_is_empty_and_flagged_not_a_tool_failure(client, recorder):
+    """mock: VECTOR_SEARCH_FAILED with no usable chunk.
+
+    Contract Q4b: empty results with partial=True and the statuses, so the
+    model can tell a failed search from a miss -- and not a ToolFailure,
+    which CrewAI would turn into a retry or an abort.
+    """
     recorder.route(
         "POST",
         ":retrieve",
@@ -93,9 +98,50 @@ def test_total_failure_becomes_a_tool_failure(client, recorder):
     tool = GoodMemSearchTool(client=client, space_ids=["s1"])
     result = tool._run(query="anything")
 
-    assert isinstance(result, ToolFailure)
-    assert result.code == "retrieval_failed"
-    assert "VECTOR_SEARCH_FAILED" in result.message
+    assert not isinstance(result, ToolFailure)
+    payload = json.loads(result)
+    assert payload["results"] == []
+    assert payload["partial"] is True
+    assert payload["statuses"][0]["code"] == "VECTOR_SEARCH_FAILED"
+
+
+def test_knowledge_storage_total_failure_warns_and_returns_empty(client, recorder):
+    """Contract Q4b for a bare-list return: nothing to hang a flag on, so the
+    failure surfaces as a warning and a log line instead of an exception."""
+    recorder.route(
+        "POST",
+        ":retrieve",
+        ndjson(status_event("SPACE_NOT_FOUND", "space gone")),
+    )
+    storage = GoodMemKnowledgeStorage(client=client, space_id="s1")
+    with pytest.warns(UserWarning, match="SPACE_NOT_FOUND"):
+        results = storage.search(["q"], limit=5, score_threshold=0.0)
+    assert results == []
+
+
+def test_feature_disabled_is_informational_whatever_its_details(client, recorder):
+    """Contract Q1: the code alone decides. The server defines FEATURE_DISABLED
+    as 'disabled due to missing configuration', so no details check."""
+    recorder.route(
+        "POST",
+        ":retrieve",
+        ndjson(
+            memory_event("m1"),
+            chunk_event("c1", "text", "m1"),
+            status_event(
+                "FEATURE_DISABLED",
+                "Reranking disabled: no reranker configured.",
+                feature="reranking",
+                required_param="reranker_id",
+            ),
+        ),
+    )
+    payload = json.loads(
+        GoodMemSearchTool(client=client, space_ids=["s1"])._run(query="q")
+    )
+    assert payload["partial"] is False
+    assert "statuses" not in payload
+    assert payload["total_results"] == 1
 
 
 def test_informational_notice_is_not_a_failure(client, recorder):

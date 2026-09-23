@@ -62,7 +62,9 @@ agent = Agent(role="Researcher", goal="Answer from the knowledge base",
 Results carry `partial` and `statuses`. If part of a search failed — a reranker
 was unavailable, one space was unreachable — you get the usable passages *and*
 the fact that they are incomplete. A search that produced nothing usable
-returns a `ToolFailure` rather than an empty success.
+returns empty results with `partial: true` and the statuses, so the model can
+tell a failed search from a miss; it is never raised. `GoodMemKnowledgeStorage`
+returns a bare list, so in that case it emits a warning and a log line instead.
 
 ## Tools
 

@@ -1,7 +1,6 @@
 """GoodMem tools and knowledge storage for CrewAI."""
 
 from crewai_goodmem._connection import GoodMemConnection
-from crewai_goodmem._results import GoodMemRetrievalError
 from crewai_goodmem._uploads import GoodMemUploadError
 from crewai_goodmem._version import __version__
 from crewai_goodmem.knowledge import GoodMemIngestionError, GoodMemKnowledgeStorage
@@ -37,7 +36,6 @@ __all__ = [
     "GoodMemListMemoriesTool",
     "GoodMemListRerankersTool",
     "GoodMemListSpacesTool",
-    "GoodMemRetrievalError",
     "GoodMemSearchTool",
     "GoodMemUpdateSpaceTool",
     "GoodMemUploadError",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any
 import warnings
 
@@ -11,12 +12,15 @@ from goodmem import MemoryCreationRequest
 from pydantic import Field, PrivateAttr
 
 from crewai_goodmem._connection import GoodMemConnection
-from crewai_goodmem._results import GoodMemRetrievalError, classify, hits_from_events
+from crewai_goodmem._results import classify, hits_from_events
 from crewai_goodmem.filters import combine, from_mapping
 
 
 if TYPE_CHECKING:
     from crewai.rag.types import SearchResult
+
+
+logger = logging.getLogger(__name__)
 
 
 class GoodMemIngestionError(RuntimeError):
@@ -127,20 +131,10 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                     kwargs["max_results"] = limit
 
                 events = list(client.memories.retrieve(**kwargs))
-                statuses, degraded = classify(events)
+                # degraded is exactly bool(statuses); the flag is derived below.
+                statuses, _ = classify(events)
                 all_statuses.extend(statuses)
                 hits = hits_from_events(events, reranked=reranked)
-
-                # A failed search must not look like an empty one.
-                if degraded and not hits:
-                    raise GoodMemRetrievalError(
-                        "; ".join(
-                            f"{s.get('code', 'UNKNOWN')}: {s.get('message', '')}"
-                            for s in statuses
-                        )
-                        or "Retrieval failed",
-                        statuses=statuses,
-                    )
 
                 for hit in hits:
                     if reranked and score_threshold is not None:
@@ -163,11 +157,15 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                 source=hit["source"],
                 score_kind=hit["score_kind"],
                 raw_score=hit["score"],
+                # True when the server reported a real problem during this
+                # search: the caller gets the results AND the fact that they
+                # may be incomplete, rather than one silently standing in for
+                # both. (Retrieval status contract, Q4a.)
+                goodmem_partial=bool(all_statuses),
             )
             if all_statuses:
-                # The caller gets the results AND the fact that they may be
-                # incomplete, rather than one silently standing in for both.
                 metadata["goodmem_statuses"] = all_statuses
+
             # A dict literal, not SearchResult(...): it is a TypedDict used
             # only for checking, and importing it at runtime is unnecessary.
             results.append(
@@ -177,6 +175,22 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                     "metadata": metadata,
                     "score": _host_score(hit),
                 }
+            )
+        if all_statuses and not results:
+            # Contract Q4b: a failed search returns empty rather than raising.
+            # A bare list has nowhere to carry the flag, so it is emitted as a
+            # warning and logged, with the statuses, so the failure is visible
+            # somewhere. CrewAI itself only reads `content`.
+            summary = "; ".join(
+                f"{s.get('code', 'UNKNOWN')}: {s.get('message', '')}"
+                for s in all_statuses
+            )
+            warnings.warn(
+                f"GoodMem search returned no results and reported a problem: {summary}",
+                stacklevel=2,
+            )
+            logger.warning(
+                "GoodMem search failed with no results; statuses=%s", all_statuses
             )
         return results
 
