@@ -1,160 +1,209 @@
-"""End-to-end tests against a live GoodMem server.
+"""Live tests against a running GoodMem server.
 
-Skipped unless ``GOODMEM_BASE_URL`` is set. Each test cleans up the spaces and
-memories it creates in a ``finally`` block so failures don't leave server state
-behind.
+Opt in with GOODMEM_BASE_URL. Every space created here is registered for
+deletion the moment it is created, deletion is verified, and teardown failures
+are reported rather than swallowed.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 
-from dotenv import load_dotenv
+from crewai.tools.tool_failure import ToolFailure
 import pytest
 
 from crewai_goodmem import (
     GoodMemCreateMemoryTool,
-    GoodMemCreateSpaceTool,
-    GoodMemDeleteMemoryTool,
-    GoodMemDeleteSpaceTool,
     GoodMemGetMemoryTool,
-    GoodMemGetSpaceTool,
-    GoodMemListEmbeddersTool,
-    GoodMemListMemoriesTool,
+    GoodMemKnowledgeStorage,
     GoodMemListSpacesTool,
-    GoodMemRetrieveMemoriesTool,
+    GoodMemSearchTool,
     GoodMemUpdateSpaceTool,
-    wait_for_memories_completed,
+    GoodMemUploadFileTool,
 )
-
-
-load_dotenv()
-
-
-def _verify_ssl() -> bool:
-    return os.environ.get("GOODMEM_VERIFY_SSL", "true").lower() != "false"
 
 
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.skipif(
         not os.environ.get("GOODMEM_BASE_URL"),
-        reason="GOODMEM_BASE_URL not set; skipping live e2e tests",
+        reason="GOODMEM_BASE_URL not set",
     ),
-    pytest.mark.filterwarnings("ignore::urllib3.exceptions.InsecureRequestWarning"),
 ]
 
-
-@pytest.fixture(scope="module")
-def embedder_id() -> str:
-    result = json.loads(GoodMemListEmbeddersTool(verify_ssl=_verify_ssl())._run())
-    assert result["success"], result
-    embedders = result["embedders"]
-    assert embedders, "no embedders registered on the GoodMem server"
-    return embedders[0]["embedderId"]
+EMBEDDER = os.environ.get("GOODMEM_EMBEDDER_ID", "")
 
 
-def test_list_embedders_returns_at_least_one() -> None:
-    result = json.loads(GoodMemListEmbeddersTool(verify_ssl=_verify_ssl())._run())
-    assert result["success"]
-    assert result["totalEmbedders"] >= 1
+def _verify() -> bool:
+    return os.environ.get("GOODMEM_VERIFY_SSL", "true").lower() != "false"
 
 
-def test_space_lifecycle(embedder_id: str) -> None:
-    create = GoodMemCreateSpaceTool(verify_ssl=_verify_ssl())
-    get = GoodMemGetSpaceTool(verify_ssl=_verify_ssl())
-    update = GoodMemUpdateSpaceTool(verify_ssl=_verify_ssl())
-    list_spaces = GoodMemListSpacesTool(verify_ssl=_verify_ssl())
-    delete = GoodMemDeleteSpaceTool(verify_ssl=_verify_ssl())
+@pytest.fixture
+def conn() -> dict:
+    return {"verify_ssl": _verify()}
 
-    name = f"crewai-goodmem-e2e-{uuid.uuid4().hex[:8]}"
-    space_id: str | None = None
+
+@pytest.fixture
+def space(conn):
+    """A real space, deleted and verified gone afterwards."""
+    from goodmem import Goodmem
+
+    client = Goodmem(
+        base_url=os.environ["GOODMEM_BASE_URL"],
+        api_key=os.environ["GOODMEM_API_KEY"],
+        verify=_verify(),
+    )
+    created = client.spaces.create(
+        name=f"crewai-e2e-{uuid.uuid4().hex[:10]}",
+        space_embedders=[{"embedderId": EMBEDDER}],
+    )
+    space_id = created.space_id
     try:
-        # create
-        result = json.loads(create._run(name=name, embedder_id=embedder_id))
-        assert result["success"], result
-        assert result["reused"] is False
-        space_id = result["spaceId"]
-        assert space_id
-
-        # get_space — round-trip the space we just created
-        fetched = json.loads(get._run(space_id=space_id))
-        assert fetched["success"], fetched
-        assert fetched["space"]["spaceId"] == space_id
-        assert fetched["space"]["name"] == name
-
-        # update_space — rename and merge a label, confirm both stuck
-        renamed = f"{name}-renamed"
-        updated = json.loads(
-            update._run(
-                space_id=space_id,
-                name=renamed,
-                merge_labels_json='{"e2e": "true"}',
-            )
-        )
-        assert updated["success"], updated
-        assert updated["space"]["name"] == renamed
-        assert updated["space"].get("labels", {}).get("e2e") == "true"
-
-        # list_spaces — the renamed space must appear in the listing
-        listed = json.loads(list_spaces._run())
-        assert listed["success"], listed
-        assert any(s["spaceId"] == space_id for s in listed["spaces"]), (
-            f"space {space_id} missing from list_spaces output"
-        )
+        yield space_id
     finally:
-        if space_id:
-            delete._run(space_id=space_id)
+        client.spaces.delete(id=space_id)
+        remaining = [s.space_id for s in client.spaces.list(max_items=1000)]
+        assert space_id not in remaining, f"cleanup failed: {space_id} still present"
+        client.close()
 
 
-def test_memory_lifecycle(embedder_id: str) -> None:
-    create_space = GoodMemCreateSpaceTool(verify_ssl=_verify_ssl())
-    delete_space = GoodMemDeleteSpaceTool(verify_ssl=_verify_ssl())
-    create_memory = GoodMemCreateMemoryTool(verify_ssl=_verify_ssl())
-    list_memories = GoodMemListMemoriesTool(verify_ssl=_verify_ssl())
-    get_memory = GoodMemGetMemoryTool(verify_ssl=_verify_ssl())
-    retrieve = GoodMemRetrieveMemoriesTool(verify_ssl=_verify_ssl())
-    delete_memory = GoodMemDeleteMemoryTool(verify_ssl=_verify_ssl())
+@pytest.fixture
+def indexed_space(space, conn):
+    tool = GoodMemCreateMemoryTool(space_id=space, **conn)
+    result = tool._run(
+        text_content="The internal audit codeword is ZEPHYR-7. Revenue rose in the north.",
+        metadata={"title": "audit note", "category": "audit"},
+    )
+    assert not isinstance(result, ToolFailure), result
+    assert json.loads(result)["status"] == "COMPLETED", "create waits for indexing"
+    return space
 
-    name = f"crewai-goodmem-e2e-{uuid.uuid4().hex[:8]}"
-    space_id: str | None = None
-    memory_id: str | None = None
-    try:
-        space_id = json.loads(create_space._run(name=name, embedder_id=embedder_id))[
-            "spaceId"
-        ]
 
-        memory_id = json.loads(
-            create_memory._run(
-                space_id=space_id,
-                text_content="The quick brown fox jumps over the lazy dog.",
-                metadata={"source": "e2e-test"},
-            )
-        )["memoryId"]
-        assert memory_id
+def test_update_space_succeeds_without_public_read(space, conn):
+    result = GoodMemUpdateSpaceTool(**conn)._run(space_id=space, name="renamed-by-e2e")
+    assert not isinstance(result, ToolFailure), result
+    assert json.loads(result)["name"] == "renamed-by-e2e"
 
-        statuses = wait_for_memories_completed(
-            [memory_id], verify_ssl=_verify_ssl(), timeout=60.0
-        )
-        assert statuses[memory_id] == "COMPLETED"
 
-        listed = json.loads(list_memories._run(space_id=space_id))
-        assert listed["success"]
-        assert listed["totalMemories"] >= 1
+def test_create_waits_so_search_finds_it_immediately(indexed_space, conn):
+    """0.1.1 polled the search for up to 10s hoping indexing would finish."""
+    started = time.monotonic()
+    result = GoodMemSearchTool(space_ids=[indexed_space], **conn)._run(
+        query="audit codeword"
+    )
+    elapsed = time.monotonic() - started
+    payload = json.loads(result)
 
-        record = json.loads(get_memory._run(memory_id=memory_id, include_content=True))
-        assert record["success"]
-        assert record["memory"]["memoryId"] == memory_id
+    assert payload["total_results"] >= 1
+    assert "ZEPHYR-7" in payload["results"][0]["chunk_text"]
+    assert elapsed < 5, f"search should be one request, took {elapsed:.1f}s"
 
-        retrieved = json.loads(
-            retrieve._run(query="quick brown fox", space_ids=[space_id])
-        )
-        assert retrieved["success"]
-        assert retrieved["totalResults"] >= 1
-    finally:
-        if memory_id:
-            delete_memory._run(memory_id=memory_id)
-        if space_id:
-            delete_space._run(space_id=space_id)
+
+def test_empty_space_answers_immediately(space, conn):
+    """0.1.1 spent 12.2s polling a space that was simply empty."""
+    started = time.monotonic()
+    payload = json.loads(
+        GoodMemSearchTool(space_ids=[space], **conn)._run(query="anything")
+    )
+    elapsed = time.monotonic() - started
+
+    assert payload["total_results"] == 0
+    assert payload["partial"] is False
+    assert elapsed < 5, f"empty is an answer; took {elapsed:.1f}s"
+
+
+def test_invalid_reranker_is_reported_not_hidden(indexed_space, conn):
+    """0.1.1 returned success with unreranked chunks and no mention of failure."""
+    result = GoodMemSearchTool(
+        space_ids=[indexed_space],
+        reranker_id="00000000-0000-0000-0000-000000000000",
+        **conn,
+    )._run(query="audit codeword")
+
+    if isinstance(result, ToolFailure):
+        assert "RERANKING_FAILED" in result.message or "NOT_FOUND" in result.message
+    else:
+        payload = json.loads(result)
+        assert payload["partial"] is True, "reranking failed; results must be flagged"
+        codes = {s.get("code") for s in payload["statuses"]}
+        assert codes & {"RERANKING_FAILED", "NOT_FOUND"}, codes
+
+
+def test_metadata_filter_is_applied_server_side(indexed_space, conn):
+    hit = json.loads(
+        GoodMemSearchTool(
+            space_ids=[indexed_space], metadata_filter={"category": "audit"}, **conn
+        )._run(query="codeword")
+    )
+    miss = json.loads(
+        GoodMemSearchTool(
+            space_ids=[indexed_space],
+            metadata_filter={"category": "nonexistent"},
+            **conn,
+        )._run(query="codeword")
+    )
+    assert hit["total_results"] >= 1
+    assert miss["total_results"] == 0
+
+
+def test_filter_value_with_an_apostrophe_is_escaped(indexed_space, conn):
+    """Live proof that the escaping the grammar accepts is the one we emit."""
+    result = GoodMemSearchTool(
+        space_ids=[indexed_space], metadata_filter={"category": "o'brien"}, **conn
+    )._run(query="codeword")
+    assert not isinstance(result, ToolFailure), result
+    assert json.loads(result)["total_results"] == 0
+
+
+def test_get_memory_returns_readable_text(indexed_space, conn):
+    listed = json.loads(
+        GoodMemSearchTool(space_ids=[indexed_space], **conn)._run(query="codeword")
+    )
+    memory_id = listed["results"][0]["memory_id"]
+    payload = json.loads(GoodMemGetMemoryTool(**conn)._run(memory_id=memory_id))
+    assert "ZEPHYR-7" in payload["content"]
+
+
+def test_upload_refuses_a_path_outside_the_upload_dir(space, conn, tmp_path):
+    allowed = tmp_path / "ok"
+    allowed.mkdir()
+    (allowed / "note.txt").write_text("Uploaded through the approved directory.")
+
+    tool = GoodMemUploadFileTool(space_id=space, upload_dir=str(allowed), **conn)
+    refused = tool._run(file_name="/etc/passwd")
+    assert isinstance(refused, ToolFailure)
+
+    accepted = tool._run(file_name="note.txt")
+    assert not isinstance(accepted, ToolFailure), accepted
+    assert json.loads(accepted)["status"] == "COMPLETED"
+
+
+def test_list_spaces_reports_what_it_returned(conn):
+    payload = json.loads(GoodMemListSpacesTool(**conn)._run())
+    assert "returned" in payload and "truncated" in payload
+
+
+def test_knowledge_storage_round_trip(space, conn):
+    """The native CrewAI surface: save through it, search through it."""
+    storage = GoodMemKnowledgeStorage(space_id=space, **conn)
+    storage.save(["Ada Lovelace wrote the first published algorithm for a machine."])
+
+    results = storage.search(["who wrote the first algorithm"], limit=3)
+    assert results, "knowledge storage found nothing it had just saved"
+    assert "Ada Lovelace" in results[0]["content"]
+    assert results[0]["metadata"]["score_kind"] == "vector"
+    # The live server's vector score is a negative inner product; CrewAI's
+    # SearchResult.score is higher-is-better, so the sign is flipped and the
+    # server value kept alongside.
+    assert results[0]["metadata"]["raw_score"] < 0
+    assert results[0]["score"] == -results[0]["metadata"]["raw_score"]
+    assert results[0]["id"], "a stable chunk id is required"
+
+
+def test_knowledge_storage_reset_requires_opt_in(space, conn):
+    storage = GoodMemKnowledgeStorage(space_id=space, **conn)
+    with pytest.raises(PermissionError, match="allow_reset"):
+        storage.reset()

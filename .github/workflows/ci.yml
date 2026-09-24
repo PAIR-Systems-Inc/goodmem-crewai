@@ -55,4 +55,4 @@ jobs:
         run: |
           uv venv .venv-smoke --python ${{ matrix.python-version }}
           uv pip install --python .venv-smoke/bin/python dist/crewai_goodmem-*.whl
-          .venv-smoke/bin/python -c "from crewai_goodmem import GoodMemRetrieveMemoriesTool, __version__; print(f'crewai-goodmem {__version__} OK')"
+          .venv-smoke/bin/python -c "from crewai_goodmem import GoodMemKnowledgeStorage, GoodMemSearchTool, __version__; print(f'crewai-goodmem {__version__} OK')"
