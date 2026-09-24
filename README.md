@@ -110,8 +110,12 @@ silent empty list. Calibrate the threshold for the reranker you use.
 
 ```bash
 uv sync --extra dev
-uv run pytest tests/          # offline, SDK driven over a mock transport
-GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… uv run pytest -m e2e
+uv run ruff check . && uv run ruff format --check . && uv run mypy src
+uv run pytest -m "not e2e"    # offline, SDK driven over a mock transport
+GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… GOODMEM_RERANKER_ID=… GOODMEM_VERIFY_SSL=false uv run pytest -m e2e
 ```
+
+`GOODMEM_RERANKER_ID` is optional — the reranker tests skip without it.
+`GOODMEM_VERIFY_SSL=false` is for a local server with a self-signed certificate.
 
 Apache-2.0.
