@@ -77,7 +77,10 @@ Requires CrewAI 1.15+.
   scores — reranker scores are left as they are — and keeps the server value
   as `metadata["raw_score"]` with `metadata["score_kind"]` naming the scale.
   Neither scale is 0-1, so `score_threshold` is applied only when a reranker
-  produced the scores, with a warning otherwise.
+  produced the scores, with a warning otherwise. Reranker scales are also
+  model-dependent (Voyage `rerank-2.5` 0.27..0.93 vs Jina `jina-reranker-v3`
+  -0.14..0.43 on the same documents), so a threshold that removes every
+  result warns and names the observed range.
 - Chunking configuration is set by the developer, not chosen by the model.
 - `crewai_goodmem.filters` builds metadata filter expressions with escaping
   the server actually accepts (backslash; SQL `''` doubling is rejected) and

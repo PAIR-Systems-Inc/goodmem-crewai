@@ -99,6 +99,13 @@ through. The untouched server value is kept as `metadata["raw_score"]`, and
 Neither scale is 0–1. `score_threshold` is therefore applied only when a
 reranker produced the scores; without one it is ignored with a warning.
 
+Even with a reranker, the scale is **model-dependent**: on the same documents
+Voyage `rerank-2.5` scored `0.27..0.93` and Jina `jina-reranker-v3` scored
+`-0.14..0.43`. CrewAI's default `score_threshold=0.6` keeps the top results on
+the first and removes everything on the second, so if a threshold drops every
+result the storage warns and names the observed range rather than returning a
+silent empty list. Calibrate the threshold for the reranker you use.
+
 ## Development
 
 ```bash

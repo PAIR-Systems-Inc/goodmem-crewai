@@ -502,3 +502,23 @@ def test_environment_cannot_redirect_an_injected_client(client, recorder, monkey
     recorder.route("POST", ":retrieve", ndjson())
     GoodMemSearchTool(client=client, space_ids=["s1"])._run(query="q")
     assert recorder.requests[0].url.host == "goodmem.test"
+
+
+def test_a_threshold_that_removes_every_reranked_result_says_so(client, recorder):
+    """Measured live 2026-09-24: Voyage rerank-2.5 scores 0.27..0.93, Jina
+    jina-reranker-v3 scores -0.14..0.43 on the same documents. CrewAI's
+    default score_threshold of 0.6 keeps the top two on one and nothing on
+    the other; the empty case must not look like a miss."""
+    recorder.route(
+        "POST",
+        ":retrieve",
+        ndjson(
+            memory_event("m1"),
+            chunk_event("c1", "best", "m1", score=0.43),
+            chunk_event("c2", "next", "m1", score=-0.14),
+        ),
+    )
+    storage = GoodMemKnowledgeStorage(client=client, space_id="s1", reranker_id="jina")
+    with pytest.warns(UserWarning, match="removed all 2 reranked result"):
+        results = storage.search(["q"], limit=5, score_threshold=0.6)
+    assert results == []

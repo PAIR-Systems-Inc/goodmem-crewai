@@ -136,10 +136,12 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                 all_statuses.extend(statuses)
                 hits = hits_from_events(events, reranked=reranked)
 
+                dropped = 0
                 for hit in hits:
                     if reranked and score_threshold is not None:
                         score = hit["score"]
                         if score is not None and score < score_threshold:
+                            dropped += 1
                             continue
                     # Keep the first occurrence: the server already ranked each
                     # query's results, and comparing raw scores would assume a
@@ -147,6 +149,22 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                     # some metrics, so "keep the larger score" can pick the
                     # worse duplicate.
                     merged.setdefault(hit["chunk_id"], hit)
+
+                if reranked and hits and dropped == len(hits):
+                    # CrewAI's interface defaults score_threshold to 0.6. That is
+                    # a sensible cut on a 0-1 reranker (Voyage rerank-2.5) and
+                    # removes everything on one whose scale is not 0-1 (Jina
+                    # jina-reranker-v3 measured -0.14..0.43 live). Say so rather
+                    # than return an empty list that reads as "no matches".
+                    scores = [h["score"] for h in hits if h["score"] is not None]
+                    warnings.warn(
+                        f"score_threshold={score_threshold} removed all {len(hits)} "
+                        f"reranked result(s); this reranker's scores ranged "
+                        f"{min(scores):.3f}..{max(scores):.3f}. Reranker score scales "
+                        "are model-dependent and not necessarily 0-1; calibrate the "
+                        "threshold for the reranker in use.",
+                        stacklevel=2,
+                    )
 
         results: list[SearchResult] = []
         for hit in list(merged.values())[:limit]:
