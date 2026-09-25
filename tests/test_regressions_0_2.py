@@ -10,14 +10,22 @@ from __future__ import annotations
 import inspect
 import json
 from typing import Any, get_type_hints
+import warnings
 
 from crewai.tools.tool_failure import ToolFailure
 from goodmem import Goodmem
 import httpx
 import pytest
 
-from crewai_goodmem import GoodMemListEmbeddersTool, GoodMemListRerankersTool
+from crewai_goodmem import (
+    GoodMemKnowledgeStorage,
+    GoodMemListEmbeddersTool,
+    GoodMemListRerankersTool,
+    GoodMemSearchTool,
+)
 from crewai_goodmem._typing import GoodmemClient
+
+from .conftest import chunk_event, memory_event, ndjson, status_event
 
 
 OWNER = "019cfcff-37c5-76d0-bd46-8525e29a9c82"
@@ -110,3 +118,149 @@ def test_typed_list_signature_matches_the_sdk(api):
     finally:
         sdk_client.close()
     assert set(typed) - {"self"} <= set(sdk)
+
+
+# ------------------------------------------------ Q4a: reranker fallback hits
+SPACE = "01a0ace4-678d-7459-aa91-b6ccd46d97d8"
+RERANKER = "019cfd1c-c033-7517-b7de-f73941a0464c"
+MISSING_RERANKER = "00000000-0000-0000-0000-000000000000"
+MEMORY = "01a0b060-0618-749c-b081-329aedc62cfe"
+
+# Measured live (GoodMem v1.0.320, 2026-09-25) with a reranker id that does
+# not exist: the server reports NOT_FOUND and RERANKING_FAILED and still sends
+# the vector search's hits, with vector (negative inner product) scores.
+FALLBACK_SCORES = [-0.5947084426879883, -0.2715, -0.2513674199581146]
+
+
+def _reranker_not_found() -> dict[str, Any]:
+    return {
+        "status": {
+            "code": "NOT_FOUND",
+            "message": (
+                "Reranker validation failed: Exception: Reranker not found: "
+                f"{MISSING_RERANKER} (ID: {MISSING_RERANKER}). Verify the "
+                "reranker exists and is accessible."
+            ),
+            "details": {"reranker_id": MISSING_RERANKER},
+        }
+    }
+
+
+def _fallback_stream(*statuses: dict[str, Any]) -> httpx.Response:
+    return ndjson(
+        *statuses,
+        memory_event(MEMORY, {"title": "refunds", "category": "policy"}),
+        chunk_event(
+            "c1", "Refunds above $500 need approval.", MEMORY, FALLBACK_SCORES[0]
+        ),
+        chunk_event(
+            "c2", "Expense reports are due on day 5.", MEMORY, FALLBACK_SCORES[1]
+        ),
+        chunk_event(
+            "c3", "On-call hands over on Wednesday.", MEMORY, FALLBACK_SCORES[2]
+        ),
+        status_event(
+            "FEATURE_DISABLED",
+            "Abstract reply generation disabled: no LLM configured.",
+            feature="summarization",
+        ),
+    )
+
+
+LIVE_FALLBACK = (
+    _reranker_not_found(),
+    status_event(
+        "RERANKING_FAILED",
+        "Failed to create reranker client: Exception: Reranker not found: "
+        f"{MISSING_RERANKER}",
+    ),
+)
+
+
+def test_search_tool_labels_reranker_fallback_hits_as_vector(client, recorder):
+    """live D01: 0.2.1 labelled all three fallback hits score_kind='reranker'."""
+    recorder.route("POST", ":retrieve", _fallback_stream(*LIVE_FALLBACK))
+    tool = GoodMemSearchTool(
+        client=client, space_ids=[SPACE], reranker_id=MISSING_RERANKER
+    )
+    payload = json.loads(tool._run(query="refund approval"))
+
+    assert payload["total_results"] == 3, "fallback hits are never discarded"
+    assert [h["score_kind"] for h in payload["results"]] == ["vector"] * 3
+    assert [h["score"] for h in payload["results"]] == FALLBACK_SCORES
+    assert payload["partial"] is True
+    assert [s["code"] for s in payload["statuses"]] == [
+        "NOT_FOUND",
+        "RERANKING_FAILED",
+    ]
+    # The reranker was still asked for; only the labelling follows the result.
+    assert recorder.body()["postProcessor"]["config"]["reranker_id"] == (
+        MISSING_RERANKER
+    )
+
+
+def test_storage_keeps_reranker_fallback_hits_under_default_threshold(client, recorder):
+    """live D02: 0.2.1 applied CrewAI's default score_threshold=0.6 to these
+    vector scores as if they were reranker scores, dropped all three, and
+    warned that "this reranker's scores ranged -0.595..-0.251"."""
+    recorder.route("POST", ":retrieve", _fallback_stream(*LIVE_FALLBACK))
+    storage = GoodMemKnowledgeStorage(
+        client=client, space_id=SPACE, reranker_id=MISSING_RERANKER
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        results = storage.search(["refund approval"])  # default threshold 0.6
+
+    assert [r["id"] for r in results] == ["c1", "c2", "c3"]
+    assert [r["score"] for r in results] == [-s for s in FALLBACK_SCORES]
+    assert [r["metadata"]["raw_score"] for r in results] == FALLBACK_SCORES
+    assert {r["metadata"]["score_kind"] for r in results} == {"vector"}
+    for result in results:
+        assert result["metadata"]["goodmem_partial"] is True
+        assert [s["code"] for s in result["metadata"]["goodmem_statuses"]] == [
+            "NOT_FOUND",
+            "RERANKING_FAILED",
+        ]
+    messages = [str(w.message) for w in caught]
+    assert not any("reranked result" in m for m in messages), messages
+    assert not any("returned no results" in m for m in messages), messages
+
+
+@pytest.mark.parametrize(
+    "statuses",
+    [
+        pytest.param((_reranker_not_found(),), id="reranker-not-found-only"),
+        pytest.param(
+            (status_event("RERANKING_FAILED", "reranker timed out"),),
+            id="reranking-failed-only",
+        ),
+    ],
+)
+def test_either_reranker_failure_status_means_vector_scores(client, recorder, statuses):
+    recorder.route("POST", ":retrieve", _fallback_stream(*statuses))
+    tool = GoodMemSearchTool(client=client, space_ids=[SPACE], reranker_id=RERANKER)
+    payload = json.loads(tool._run(query="q"))
+    assert [h["score_kind"] for h in payload["results"]] == ["vector"] * 3
+    assert payload["partial"] is True
+
+
+def test_unrelated_not_found_does_not_relabel_reranked_hits(client, recorder):
+    """A NOT_FOUND about something else (one of several spaces) says nothing
+    about the reranker: hits it ranked stay reranker-scored and thresholded."""
+    recorder.route(
+        "POST",
+        ":retrieve",
+        ndjson(
+            status_event("NOT_FOUND", "Space not found", space_id=SPACE),
+            memory_event(MEMORY),
+            chunk_event("c1", "strong", MEMORY, 0.91),
+            chunk_event("c2", "weak", MEMORY, 0.10),
+        ),
+    )
+    storage = GoodMemKnowledgeStorage(
+        client=client, space_id=SPACE, reranker_id=RERANKER
+    )
+    results = storage.search(["q"], score_threshold=0.6)
+    assert [r["id"] for r in results] == ["c1"]
+    assert results[0]["metadata"]["score_kind"] == "reranker"
+    assert results[0]["metadata"]["goodmem_partial"] is True

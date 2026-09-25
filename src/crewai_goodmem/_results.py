@@ -60,6 +60,35 @@ def classify(
     return surfaced, degraded
 
 
+def _is_reranker_failure(status: GoodMemStatus) -> bool:
+    if status.code == "RERANKING_FAILED":
+        return True
+    if status.code != "NOT_FOUND":
+        return False
+    # Live, a missing reranker arrives as NOT_FOUND carrying the reranker's id
+    # in its details, alongside RERANKING_FAILED. A NOT_FOUND about anything
+    # else (a space, a memory) says nothing about the ranking.
+    details = status.details or {}
+    return "reranker_id" in details or "reranker" in status.message.lower()
+
+
+def was_reranked(events: Sequence[RetrieveMemoryEvent], *, requested: bool) -> bool:
+    """Whether the returned scores really came from the reranker.
+
+    Decided from the response, not from configuration. When reranking fails
+    (``RERANKING_FAILED``, or ``NOT_FOUND`` for the reranker) the server still
+    returns the vector search's hits, scored on the vector scale. Labelling
+    those "reranker" would leave them un-negated and let a reranker threshold
+    discard every one of them. (Retrieval status contract, Q4a.)
+    """
+    if not requested:
+        return False
+    return not any(
+        event.status is not None and _is_reranker_failure(event.status)
+        for event in events
+    )
+
+
 def hits_from_events(
     events: Iterable[RetrieveMemoryEvent],
     *,
@@ -73,7 +102,8 @@ def hits_from_events(
 
     Server ordering and raw scores are preserved. ``score_kind`` records where
     the score came from, because a reranker score and a vector score are not
-    on the same scale and must not be compared or thresholded together.
+    on the same scale and must not be compared or thresholded together. Pass
+    ``reranked=was_reranked(events, ...)``, never the configuration alone.
     """
     events = list(events)
     memories = {

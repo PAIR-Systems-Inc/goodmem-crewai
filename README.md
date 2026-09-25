@@ -105,6 +105,10 @@ through. The untouched server value is kept as `metadata["raw_score"]`, and
 
 Neither scale is 0–1. `score_threshold` is therefore applied only when a
 reranker produced the scores; without one it is ignored with a warning.
+`score_kind` follows what the server did, not what was configured: if the
+reranker fails (`RERANKING_FAILED`, or `NOT_FOUND` for the reranker), the
+server still returns the vector search's hits, and they are kept as `"vector"`
+results — negated, not thresholded, and flagged partial with the statuses.
 
 Even with a reranker, the scale is **model-dependent**: on the same documents
 Voyage `rerank-2.5` scored `0.27..0.93` and Jina `jina-reranker-v3` scored

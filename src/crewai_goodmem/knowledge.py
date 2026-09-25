@@ -13,7 +13,7 @@ from pydantic import Field, PrivateAttr
 
 from crewai_goodmem._connection import GoodMemConnection
 from crewai_goodmem._ids import require_uuid
-from crewai_goodmem._results import classify, hits_from_events
+from crewai_goodmem._results import classify, hits_from_events, was_reranked
 from crewai_goodmem.filters import combine, from_mapping
 
 
@@ -60,8 +60,10 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
     number -- so it is negated here; a reranker score already runs the right
     way and is passed through. The untouched server value is kept as
     ``metadata["raw_score"]`` and ``metadata["score_kind"]`` says which scale
-    it is. Neither is 0-1, so ``score_threshold`` is only applied when
-    ``reranker_id`` is configured and the scores are genuine relevance values.
+    it is. Neither is 0-1, so ``score_threshold`` is only applied to scores a
+    reranker actually produced. If the configured reranker fails, the server
+    still returns vector-scored hits; they are kept as vector results, with
+    ``metadata["goodmem_partial"]`` and the statuses, and are not thresholded.
     Results keep the server's ordering; they are not re-sorted client-side.
 
     Async methods run the synchronous SDK on a worker thread, so they do not
@@ -110,9 +112,7 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
             if self.reranker_id is not None
             else None
         )
-        reranked = bool(reranker_id)
-
-        if not reranked and score_threshold and not self._warned_threshold:
+        if reranker_id is None and score_threshold and not self._warned_threshold:
             self._warned_threshold = True
             warnings.warn(
                 "score_threshold is ignored without a reranker: GoodMem vector "
@@ -139,7 +139,7 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                     kwargs["space_keys"] = [
                         {"spaceId": sid, "filter": expression} for sid in targets
                     ]
-                if reranked:
+                if reranker_id is not None:
                     kwargs["reranker_id"] = reranker_id
                     kwargs["max_results"] = limit
 
@@ -147,6 +147,11 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                 # degraded is exactly bool(statuses); the flag is derived below.
                 statuses, _ = classify(events)
                 all_statuses.extend(statuses)
+                # Decided per response: when the reranker fails the server
+                # still returns the vector hits, and a reranker threshold
+                # applied to vector scores would discard all of them. They
+                # are kept, negated as vector scores, and flagged partial.
+                reranked = was_reranked(events, requested=reranker_id is not None)
                 hits = hits_from_events(events, reranked=reranked)
 
                 dropped = 0

@@ -44,6 +44,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keep at most `max_items`, reporting `truncated` exactly. The typing Protocol
   for these two APIs now spells out the SDK's `list()` signature instead of
   `**kwargs`, so mypy rejects the bad keyword.
+- **A failed reranker no longer makes every result disappear.** Whether hits
+  were reranked was decided from configuration (`reranker_id` set). With a
+  reranker id that does not exist, the server reports `NOT_FOUND` and
+  `RERANKING_FAILED` and still returns the vector search's hits (live scores
+  `-0.5947`, `-0.2715`, `-0.2514`). `GoodMemSearchTool` labelled them
+  `score_kind="reranker"`, and `GoodMemKnowledgeStorage` left them un-negated,
+  applied CrewAI's default `score_threshold=0.6` to them, returned `[]`, and
+  warned that "this reranker's scores ranged -0.595..-0.251". It is now
+  decided from the response: when either status is present the hits are
+  vector results (negated in the storage, not thresholded), and
+  `partial`/`goodmem_partial` stay true with the statuses.
 
 ### Changed
 

@@ -22,7 +22,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from crewai_goodmem._connection import GoodMemConnection
 from crewai_goodmem._ids import UuidStr, require_uuid
-from crewai_goodmem._results import abstract_reply, classify, hits_from_events
+from crewai_goodmem._results import (
+    abstract_reply,
+    classify,
+    hits_from_events,
+    was_reranked,
+)
 from crewai_goodmem._uploads import GoodMemUploadError, resolve_upload_path
 from crewai_goodmem.filters import combine, from_mapping
 
@@ -137,7 +142,6 @@ class GoodMemSearchTool(_GoodMemBaseTool):
             self.filter,
             from_mapping(self.metadata_filter) if self.metadata_filter else None,
         )
-        reranked = bool(reranker_id)
         kwargs: dict[str, Any] = {
             "message": query,
             "requested_size": self.fetch_k or self.k,
@@ -150,7 +154,7 @@ class GoodMemSearchTool(_GoodMemBaseTool):
             kwargs["space_keys"] = [
                 {"spaceId": sid, "filter": expression} for sid in space_ids
             ]
-        if reranked:
+        if reranker_id is not None:
             kwargs["reranker_id"] = reranker_id
             kwargs["max_results"] = self.k
 
@@ -161,6 +165,9 @@ class GoodMemSearchTool(_GoodMemBaseTool):
             return _failure(exc, "Search failed")
 
         statuses, degraded = classify(events)
+        # A failed reranker still returns the vector hits: label them by what
+        # the server did, not by what was configured.
+        reranked = was_reranked(events, requested=reranker_id is not None)
         hits = hits_from_events(events, reranked=reranked)[: self.k]
 
         payload: dict[str, Any] = {
