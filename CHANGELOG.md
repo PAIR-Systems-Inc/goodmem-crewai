@@ -82,6 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CI step) executes every Python snippet in the README against a local mock
   server and then uses what it built: `knowledge.query()` and `search.run()`
   must each reach GoodMem.
+- **The PyPI "Documentation" link was dead.** `https://docs.goodmem.com/integrations/crewai`
+  fails the TLS handshake (`tlsv1 unrecognized name`). It now points at
+  `https://docs.goodmem.ai/docs/integrations/agent-frameworks/crewai/`.
 
 ### Changed
 

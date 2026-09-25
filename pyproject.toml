@@ -45,7 +45,7 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/PAIR-Systems-Inc/goodmem-crewai"
 Source = "https://github.com/PAIR-Systems-Inc/goodmem-crewai"
-Documentation = "https://docs.goodmem.com/integrations/crewai"
+Documentation = "https://docs.goodmem.ai/docs/integrations/agent-frameworks/crewai/"
 Issues = "https://github.com/PAIR-Systems-Inc/goodmem-crewai/issues"
 Changelog = "https://github.com/PAIR-Systems-Inc/goodmem-crewai/blob/main/CHANGELOG.md"
 
