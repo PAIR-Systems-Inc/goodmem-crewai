@@ -24,6 +24,7 @@ from crewai_goodmem import (
     GoodMemSearchTool,
 )
 from crewai_goodmem._typing import GoodmemClient
+from crewai_goodmem.filters import from_mapping
 
 from .conftest import chunk_event, memory_event, ndjson, status_event
 
@@ -264,3 +265,56 @@ def test_unrelated_not_found_does_not_relabel_reranked_hits(client, recorder):
     assert [r["id"] for r in results] == ["c1"]
     assert results[0]["metadata"]["score_kind"] == "reranker"
     assert results[0]["metadata"]["goodmem_partial"] is True
+
+
+# ------------------------------------------------ typed metadata_filter values
+# live: {'flag': True} was built as CAST(val('$.flag') AS TEXT) = 'True' and
+# matched 0 rows; CAST(val('$.flag') AS BOOLEAN) = true matched the 1 row.
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (True, "CAST(val('$.flag') AS BOOLEAN) = true"),
+        (False, "CAST(val('$.flag') AS BOOLEAN) = false"),
+        (2026, "CAST(val('$.flag') AS NUMERIC) = 2026"),
+        (-3, "CAST(val('$.flag') AS NUMERIC) = -3"),
+        (2.5, "CAST(val('$.flag') AS NUMERIC) = 2.5"),
+        (1e-05, "CAST(val('$.flag') AS NUMERIC) = 0.00001"),
+        (1e20, "CAST(val('$.flag') AS NUMERIC) = 100000000000000000000"),
+        ("True", "CAST(val('$.flag') AS TEXT) = 'True'"),
+        ("o'brien", r"CAST(val('$.flag') AS TEXT) = 'o\'brien'"),
+    ],
+)
+def test_metadata_filter_casts_by_value_type(value, expected):
+    assert from_mapping({"flag": value}) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, [1], {"a": 1}, (1,), b"x", float("nan"), float("inf"), object()],
+    ids=["None", "list", "dict", "tuple", "bytes", "nan", "inf", "object"],
+)
+def test_metadata_filter_refuses_values_it_cannot_compare(value):
+    with pytest.raises(ValueError, match="flag"):
+        from_mapping({"flag": value})
+
+
+def test_boolean_metadata_filter_reaches_the_server_as_a_boolean(client, recorder):
+    recorder.route("POST", ":retrieve", ndjson())
+    GoodMemSearchTool(
+        client=client, space_ids=[SPACE], metadata_filter={"flag": True, "n": 1}
+    )._run(query="q")
+    assert recorder.body()["spaceKeys"][0]["filter"] == (
+        "(CAST(val('$.flag') AS BOOLEAN) = true) AND (CAST(val('$.n') AS NUMERIC) = 1)"
+    )
+
+
+def test_search_tool_refuses_an_unfilterable_value_without_a_request(client, recorder):
+    """0.2.1 sent CAST(val('$.flag') AS TEXT) = 'None', a filter that can
+    never match, and reported an ordinary empty result."""
+    recorder.route("POST", ":retrieve", ndjson())
+    result = GoodMemSearchTool(
+        client=client, space_ids=[SPACE], metadata_filter={"flag": None}
+    )._run(query="q")
+    assert isinstance(result, ToolFailure)
+    assert result.code == "invalid_input"
+    assert recorder.requests == []

@@ -59,6 +59,11 @@ agent = Agent(role="Researcher", goal="Answer from the knowledge base",
               backstory="You cite sources.", tools=[search])
 ```
 
+`metadata_filter` values are compared as their own JSON type: a `str` as text,
+a `bool` as a boolean and an `int`/`float` as a number, so `{"archived": True}`
+matches a stored `true`. Any other value (`None`, a list, a dict) is refused
+with `ValueError`; use `filter` to pass an expression directly.
+
 Results carry `partial` and `statuses`. If part of a search failed — a reranker
 was unavailable, one space was unreachable — you get the usable passages *and*
 the fact that they are incomplete. A search that produced nothing usable

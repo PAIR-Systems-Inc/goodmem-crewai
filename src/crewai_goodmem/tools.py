@@ -135,13 +135,13 @@ class GoodMemSearchTool(_GoodMemBaseTool):
                 if self.reranker_id is not None
                 else None
             )
+            expression = combine(
+                self.filter,
+                from_mapping(self.metadata_filter) if self.metadata_filter else None,
+            )
         except ValueError as exc:
             return _failure(exc, "Search rejected")
 
-        expression = combine(
-            self.filter,
-            from_mapping(self.metadata_filter) if self.metadata_filter else None,
-        )
         kwargs: dict[str, Any] = {
             "message": query,
             "requested_size": self.fetch_k or self.k,

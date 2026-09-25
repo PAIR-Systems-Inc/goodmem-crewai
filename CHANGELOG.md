@@ -55,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decided from the response: when either status is present the hits are
   vector results (negated in the storage, not thresholded), and
   `partial`/`goodmem_partial` stay true with the statuses.
+- **A boolean `metadata_filter` value matched nothing.** Every value was
+  turned into text, so `{"flag": True}` became
+  `CAST(val('$.flag') AS TEXT) = 'True'`, which matched 0 rows live where
+  `CAST(val('$.flag') AS BOOLEAN) = true` matched 1. Values are now cast by
+  type: `bool` as `BOOLEAN` (`true`/`false`), `int`/`float` as `NUMERIC`
+  (plain decimal, no exponent), `str` as escaped `TEXT`. `None`, lists, dicts,
+  NaN/infinity and other objects raise `ValueError` instead of building a
+  filter that can never match; `GoodMemSearchTool` returns that as an
+  `INVALID_INPUT` `ToolFailure` without making a request. The new
+  `filters.equals()` builds one typed comparison.
 
 ### Changed
 
