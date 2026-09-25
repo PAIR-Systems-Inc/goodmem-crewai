@@ -82,6 +82,13 @@ returns a bare list, so in that case it emits a warning and a log line instead.
 Space, memory and file tools carry the authority of the configured API key.
 Give them only to crews that need it.
 
+Every id, whether a model passes it or you configure it, must be a UUID;
+anything else is refused before a request is made (a tool returns a
+`ToolFailure` with reason `INVALID_INPUT`, `GoodMemKnowledgeStorage` and
+`wait_for_memories` raise `ValueError`), because the SDK puts ids into the URL
+path unescaped and an id such as `../spaces/<id>` would otherwise send the call
+to a different resource.
+
 ## Waiting for indexing
 
 Searching is not a way to wait for a write. `GoodMemCreateMemoryTool` waits for
@@ -111,7 +118,7 @@ silent empty list. Calibrate the threshold for the reranker you use.
 ```bash
 uv sync --extra dev
 uv run ruff check . && uv run ruff format --check . && uv run mypy src
-uv run pytest -m "not e2e"    # offline, SDK driven over a mock transport
+uv run pytest -m "not e2e"    # offline: the SDK over a mock transport and a local HTTP server
 GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… GOODMEM_RERANKER_ID=… GOODMEM_VERIFY_SSL=false uv run pytest -m e2e
 ```
 
