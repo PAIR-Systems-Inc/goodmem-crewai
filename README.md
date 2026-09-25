@@ -128,13 +128,12 @@ silent empty list. Calibrate the threshold for the reranker you use.
 uv sync --extra dev
 uv run ruff check . && uv run ruff format --check . && uv run mypy src
 uv run pytest -m "not e2e"    # offline: the SDK over a mock transport and a local HTTP server
-GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… GOODMEM_RERANKER_ID=… GOODMEM_VERIFY_SSL=false uv run pytest -m e2e
+GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… GOODMEM_VERIFY_SSL=false uv run pytest -m e2e
 ```
 
 `tests/test_readme.py` runs every Python snippet in this README, as written,
 against a local mock server; CI runs it as its own step.
 
-`GOODMEM_RERANKER_ID` is optional — the reranker tests skip without it.
 `GOODMEM_VERIFY_SSL=false` is for a local server with a self-signed certificate.
 
 Apache-2.0.

@@ -81,7 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without importing it. Both are fixed, and `tests/test_readme.py` (its own
   CI step) executes every Python snippet in the README against a local mock
   server and then uses what it built: `knowledge.query()` and `search.run()`
-  must each reach GoodMem.
+  must each reach GoodMem. The Development section no longer tells you to set
+  `GOODMEM_RERANKER_ID` for "the reranker tests": no test reads it.
 - **The PyPI "Documentation" link was dead.** `https://docs.goodmem.com/integrations/crewai`
   fails the TLS handshake (`tlsv1 unrecognized name`). It now points at
   `https://docs.goodmem.ai/docs/integrations/agent-frameworks/crewai/`.
