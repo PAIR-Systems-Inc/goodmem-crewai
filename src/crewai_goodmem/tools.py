@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Sequence
 import json
 import time
 from typing import Any, ClassVar, Literal
@@ -214,40 +215,52 @@ class GoodMemListSpacesTool(_GoodMemBaseTool):
         )
 
 
+def _capped(items: Sequence[Any], max_items: int | None, key: str) -> str:
+    """Render a complete, unpaginated listing, keeping at most ``max_items``.
+
+    ``embedders.list()`` and ``rerankers.list()`` are not paginated: the server
+    returns every match in one response and the SDK hands back a plain list,
+    so the cap is applied here and ``truncated`` is exact.
+    """
+    kept = items if max_items is None else items[:max_items]
+    return json.dumps(
+        {
+            key: [item.model_dump(exclude_none=True) for item in kept],
+            "returned": len(kept),
+            "truncated": len(kept) < len(items),
+        },
+        default=str,
+    )
+
+
 class GoodMemListEmbeddersTool(_GoodMemBaseTool):
     name: str = "GoodMemListEmbedders"
     description: str = "List embedders available for creating GoodMem spaces."
     args_schema: type[BaseModel] = _Empty
-    max_items: int | None = 100
+    max_items: int | None = Field(default=100, ge=0)
 
     def _run(self) -> Any:
         try:
             with self._session() as client:
-                items = [
-                    e.model_dump(exclude_none=True)
-                    for e in client.embedders.list(max_items=self.max_items)
-                ]
+                embedders = client.embedders.list()
+            return _capped(embedders, self.max_items, "embedders")
         except Exception as exc:
             return _failure(exc, "Failed to list embedders")
-        return json.dumps({"embedders": items, "returned": len(items)}, default=str)
 
 
 class GoodMemListRerankersTool(_GoodMemBaseTool):
     name: str = "GoodMemListRerankers"
     description: str = "List rerankers available to improve search result ordering."
     args_schema: type[BaseModel] = _Empty
-    max_items: int | None = 100
+    max_items: int | None = Field(default=100, ge=0)
 
     def _run(self) -> Any:
         try:
             with self._session() as client:
-                items = [
-                    r.model_dump(exclude_none=True)
-                    for r in client.rerankers.list(max_items=self.max_items)
-                ]
+                rerankers = client.rerankers.list()
+            return _capped(rerankers, self.max_items, "rerankers")
         except Exception as exc:
             return _failure(exc, "Failed to list rerankers")
-        return json.dumps({"rerankers": items, "returned": len(items)}, default=str)
 
 
 # ============================================================ spaces

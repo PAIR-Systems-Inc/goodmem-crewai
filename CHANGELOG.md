@@ -34,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pydantic does not enforce the pattern, because CrewAI would then record the
   refusal as a bare exception instead of `INVALID_INPUT`.
 
+### Fixed
+
+- **`GoodMemListEmbeddersTool` and `GoodMemListRerankersTool` failed on every
+  call.** They passed `max_items` to `embedders.list()` / `rerankers.list()`,
+  which in `goodmem` 0.1.34/0.1.35 are not paginated and take no such keyword,
+  so every call returned `ToolFailure("... got an unexpected keyword argument
+  'max_items'")` without making a request. They now fetch the full list and
+  keep at most `max_items`, reporting `truncated` exactly. The typing Protocol
+  for these two APIs now spells out the SDK's `list()` signature instead of
+  `**kwargs`, so mypy rejects the bad keyword.
+
 ### Changed
 
 - `reranker_id=""` used to mean "no reranker" without saying so. It is now
