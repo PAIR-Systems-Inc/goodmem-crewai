@@ -30,8 +30,22 @@ class _MemoriesAPI(Protocol):
     def batch_create(self, *, requests: Sequence[Any]) -> Any: ...
 
 
-class _ModelsAPI(Protocol):
-    def list(self, **kwargs: Any) -> Any: ...
+class _RegistryAPI(Protocol):
+    """``embedders`` and ``rerankers``.
+
+    Their ``list()`` is not paginated: it takes only these filters and returns
+    every match as a plain list. The signature is spelled out, not
+    ``**kwargs``, so a keyword the SDK does not accept (``max_items``, which
+    only the paginated ``spaces``/``memories`` lists take) fails type checking
+    instead of failing every call at runtime.
+    """
+
+    def list(
+        self,
+        *,
+        label: dict[str, str] | None = None,
+        owner_id: str | None = None,
+    ) -> Sequence[Any]: ...
 
 
 class GoodmemClient(Protocol):
@@ -42,8 +56,8 @@ class GoodmemClient(Protocol):
     @property
     def memories(self) -> _MemoriesAPI: ...
     @property
-    def embedders(self) -> _ModelsAPI: ...
+    def embedders(self) -> _RegistryAPI: ...
     @property
-    def rerankers(self) -> _ModelsAPI: ...
+    def rerankers(self) -> _RegistryAPI: ...
 
     def close(self) -> None: ...

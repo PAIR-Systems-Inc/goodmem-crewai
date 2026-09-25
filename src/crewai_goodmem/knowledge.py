@@ -12,7 +12,8 @@ from goodmem import MemoryCreationRequest
 from pydantic import Field, PrivateAttr
 
 from crewai_goodmem._connection import GoodMemConnection
-from crewai_goodmem._results import classify, hits_from_events
+from crewai_goodmem._ids import require_uuid
+from crewai_goodmem._results import classify, hits_from_events, was_reranked
 from crewai_goodmem.filters import combine, from_mapping
 
 
@@ -59,12 +60,17 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
     number -- so it is negated here; a reranker score already runs the right
     way and is passed through. The untouched server value is kept as
     ``metadata["raw_score"]`` and ``metadata["score_kind"]`` says which scale
-    it is. Neither is 0-1, so ``score_threshold`` is only applied when
-    ``reranker_id`` is configured and the scores are genuine relevance values.
+    it is. Neither is 0-1, so ``score_threshold`` is only applied to scores a
+    reranker actually produced. If the configured reranker fails, the server
+    still returns vector-scored hits; they are kept as vector results, with
+    ``metadata["goodmem_partial"]`` and the statuses, and are not thresholded.
     Results keep the server's ordering; they are not re-sorted client-side.
 
     Async methods run the synchronous SDK on a worker thread, so they do not
     block the event loop.
+
+    Every configured id must be a UUID. One that is not raises ``ValueError``
+    before any request is made: the SDK places ids in URL paths unescaped.
     """
 
     space_id: str
@@ -82,7 +88,11 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
     _warned_threshold: bool = PrivateAttr(default=False)
 
     def _targets(self) -> list[str]:
-        return [self.space_id, *[s for s in self.space_ids if s != self.space_id]]
+        primary = require_uuid(self.space_id, "space_id")
+        others = [
+            require_uuid(sid, f"space_ids[{i}]") for i, sid in enumerate(self.space_ids)
+        ]
+        return [primary, *[s for s in others if s != primary]]
 
     # ------------------------------------------------------------ searching
     def search(
@@ -96,9 +106,13 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
             self.filter,
             from_mapping(metadata_filter) if metadata_filter else None,
         )
-        reranked = bool(self.reranker_id)
-
-        if not reranked and score_threshold and not self._warned_threshold:
+        targets = self._targets()
+        reranker_id = (
+            require_uuid(self.reranker_id, "reranker_id")
+            if self.reranker_id is not None
+            else None
+        )
+        if reranker_id is None and score_threshold and not self._warned_threshold:
             self._warned_threshold = True
             warnings.warn(
                 "score_threshold is ignored without a reranker: GoodMem vector "
@@ -120,20 +134,24 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                     "stream": False,
                 }
                 if expression is None:
-                    kwargs["space_ids"] = self._targets()
+                    kwargs["space_ids"] = targets
                 else:
                     kwargs["space_keys"] = [
-                        {"spaceId": sid, "filter": expression}
-                        for sid in self._targets()
+                        {"spaceId": sid, "filter": expression} for sid in targets
                     ]
-                if reranked:
-                    kwargs["reranker_id"] = self.reranker_id
+                if reranker_id is not None:
+                    kwargs["reranker_id"] = reranker_id
                     kwargs["max_results"] = limit
 
                 events = list(client.memories.retrieve(**kwargs))
                 # degraded is exactly bool(statuses); the flag is derived below.
                 statuses, _ = classify(events)
                 all_statuses.extend(statuses)
+                # Decided per response: when the reranker fails the server
+                # still returns the vector hits, and a reranker threshold
+                # applied to vector scores would discard all of them. They
+                # are kept, negated as vector scores, and flagged partial.
+                reranked = was_reranked(events, requested=reranker_id is not None)
                 hits = hits_from_events(events, reranked=reranked)
 
                 dropped = 0
@@ -228,13 +246,14 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
         texts = [d for d in documents if d and d.strip()]
         if not texts:
             return
+        space_id = require_uuid(self.space_id, "space_id")
 
         accepted: list[str] = []
         with self._session() as client:
             response = client.memories.batch_create(
                 requests=[
                     MemoryCreationRequest(
-                        space_id=self.space_id,
+                        space_id=space_id,
                         original_content=text,
                         content_type="text/plain",
                     )
@@ -280,7 +299,8 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
         import time
 
         deadline = time.monotonic() + self.indexing_timeout
-        pending = list(dict.fromkeys(memory_ids))
+        # Server-issued ids, but each one becomes a URL path all the same.
+        pending = list(dict.fromkeys(require_uuid(m, "memory_id") for m in memory_ids))
         while pending:
             still: list[str] = []
             for memory_id in pending:
@@ -313,8 +333,14 @@ class GoodMemKnowledgeStorage(GoodMemConnection, BaseKnowledgeStorage):
                 f"{self.space_id}. Construct the storage with allow_reset=True "
                 "to permit it."
             )
+        space_id = require_uuid(self.space_id, "space_id")
         with self._session() as client:
-            ids = [m.memory_id for m in client.memories.list(space_id=self.space_id)]
+            # Listed ids are checked before the first delete, so a bad one
+            # stops the reset rather than leaving it half done.
+            ids = [
+                require_uuid(m.memory_id, "memory_id")
+                for m in client.memories.list(space_id=space_id)
+            ]
             for memory_id in ids:
                 client.memories.delete(id=memory_id)
 

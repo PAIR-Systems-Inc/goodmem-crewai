@@ -23,9 +23,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    # 1.15 introduced ToolFailure/ToolFailurePolicy, which this package returns
-    # instead of JSON error envelopes the framework cannot see.
-    "crewai>=1.15",
+    # crewai.tools.tool_failure (ToolFailure/ToolFailureReason), which this
+    # package returns instead of JSON error envelopes the framework cannot
+    # see, first ships in 1.15.9; 1.15.0-1.15.8 cannot import this package.
+    # The CI "floor" job installs the lowest versions and runs the suite.
+    "crewai>=1.15.9",
     "goodmem>=0.1.34",
 ]
 dynamic = ["version"]
@@ -43,7 +45,7 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/PAIR-Systems-Inc/goodmem-crewai"
 Source = "https://github.com/PAIR-Systems-Inc/goodmem-crewai"
-Documentation = "https://docs.goodmem.com/integrations/crewai"
+Documentation = "https://docs.goodmem.ai/docs/integrations/agent-frameworks/crewai/"
 Issues = "https://github.com/PAIR-Systems-Inc/goodmem-crewai/issues"
 Changelog = "https://github.com/PAIR-Systems-Inc/goodmem-crewai/blob/main/CHANGELOG.md"
 

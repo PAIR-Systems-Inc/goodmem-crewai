@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-09-25
+
+### Security
+
+- **An id can no longer redirect a call to a different resource.** The
+  `goodmem` SDK puts ids into URL paths unescaped and httpx resolves dot
+  segments before sending, so `GoodMemDeleteMemoryTool(memory_id="../spaces/<id>")`
+  sent `DELETE /v1/spaces/<id>`, deleting the whole space, and reported
+  `{"deleted": true}`. Measured on 0.2.0 against a local recording server:
+  `a/../../spaces/<id>` and `<id>/../../spaces/<id>` did the same;
+  `%2e%2e/spaces/<id>` and `..%2Fspaces%2F<id>` were sent as written for the
+  server to decode; on list-memories `<id>#frag` and `<id>?x=1` fetched the
+  space itself instead. The get/update/delete space, list/get/delete memory
+  tools, `wait_for_memories` and `GoodMemKnowledgeStorage.reset()` were all
+  affected; for `reset()` the configured `space_id` decided whose memories were
+  listed and then deleted. Every id must now be a UUID and is sent in lowercase.
+  Anything else is refused before a request is made: tools return a
+  `ToolFailure` with reason `INVALID_INPUT`, while `GoodMemKnowledgeStorage`
+  and `wait_for_memories` raise `ValueError`. Configured ids sent in a request
+  body (search spaces, reranker, embedder, target space) are checked the same
+  way, and so are ids the server lists before they are used in a path:
+  `reset()` checks every listed id before it deletes any.
+- The model-facing id arguments are declared as UUIDs (`pattern`) in the tool
+  schema, so the model is told. The check inside the tool is what refuses;
+  pydantic does not enforce the pattern, because CrewAI would then record the
+  refusal as a bare exception instead of `INVALID_INPUT`.
+
+### Fixed
+
+- **`GoodMemListEmbeddersTool` and `GoodMemListRerankersTool` failed on every
+  call.** They passed `max_items` to `embedders.list()` / `rerankers.list()`,
+  which in `goodmem` 0.1.34/0.1.35 are not paginated and take no such keyword,
+  so every call returned `ToolFailure("... got an unexpected keyword argument
+  'max_items'")` without making a request. They now fetch the full list and
+  keep at most `max_items`, reporting `truncated` exactly. The typing Protocol
+  for these two APIs now spells out the SDK's `list()` signature instead of
+  `**kwargs`, so mypy rejects the bad keyword.
+- **A failed reranker no longer makes every result disappear.** Whether hits
+  were reranked was decided from configuration (`reranker_id` set). With a
+  reranker id that does not exist, the server reports `NOT_FOUND` and
+  `RERANKING_FAILED` and still returns the vector search's hits (live scores
+  `-0.5947`, `-0.2715`, `-0.2514`). `GoodMemSearchTool` labelled them
+  `score_kind="reranker"`, and `GoodMemKnowledgeStorage` left them un-negated,
+  applied CrewAI's default `score_threshold=0.6` to them, returned `[]`, and
+  warned that "this reranker's scores ranged -0.595..-0.251". It is now
+  decided from the response: when either status is present the hits are
+  vector results (negated in the storage, not thresholded), and
+  `partial`/`goodmem_partial` stay true with the statuses.
+- **A boolean `metadata_filter` value matched nothing.** Every value was
+  turned into text, so `{"flag": True}` became
+  `CAST(val('$.flag') AS TEXT) = 'True'`, which matched 0 rows live where
+  `CAST(val('$.flag') AS BOOLEAN) = true` matched 1. Values are now cast by
+  type: `bool` as `BOOLEAN` (`true`/`false`), `int`/`float` as `NUMERIC`
+  (plain decimal, no exponent), `str` as escaped `TEXT`. `None`, lists, dicts,
+  NaN/infinity and other objects raise `ValueError` instead of building a
+  filter that can never match; `GoodMemSearchTool` returns that as an
+  `INVALID_INPUT` `ToolFailure` without making a request. The new
+  `filters.equals()` builds one typed comparison.
+- **The declared CrewAI floor could not import the package.** `crewai>=1.15`
+  admitted 1.15.0–1.15.8, which do not ship `crewai.tools.tool_failure`
+  (first in 1.15.9); installing at the lowest allowed versions gave
+  crewai 1.15.0 and `ModuleNotFoundError` on `import crewai_goodmem`. The
+  requirement is now `crewai>=1.15.9`. A new CI job installs the built wheel
+  with `uv pip install --resolution lowest`, checks that exactly the declared
+  floors (crewai 1.15.9, goodmem 0.1.34) were installed and that the wheel is
+  what imports, and runs the offline suite there. The `goodmem>=0.1.34` floor
+  passes that job unchanged.
+- **The README quickstarts did not run.** The knowledge-backend snippet failed
+  on its second line, `from crewai.knowledge import Knowledge`
+  (`crewai/knowledge/__init__.py` is empty; the class is exported as
+  `from crewai import Knowledge`), and the agent-tool snippet used `Agent`
+  without importing it. Both are fixed, and `tests/test_readme.py` (its own
+  CI step) executes every Python snippet in the README against a local mock
+  server and then uses what it built: `knowledge.query()` and `search.run()`
+  must each reach GoodMem. The Development section no longer tells you to set
+  `GOODMEM_RERANKER_ID` for "the reranker tests": no test reads it.
+- **The PyPI "Documentation" link was dead.** `https://docs.goodmem.com/integrations/crewai`
+  fails the TLS handshake (`tlsv1 unrecognized name`). It now points at
+  `https://docs.goodmem.ai/docs/integrations/agent-frameworks/crewai/`.
+
+### Changed
+
+- `reranker_id=""` used to mean "no reranker" without saying so. It is now
+  refused like any other id that is not a UUID; pass `None` for no reranker.
+
 ## [0.2.0] — 2026-09-17
 
 0.2 is a deliberate API break. The integration now uses the official `goodmem`
@@ -112,7 +197,8 @@ Requires CrewAI 1.15+.
 | Create-space reused a same-named space | Creation creates; a collision is a conflict |
 | `requests` | the official `goodmem` SDK |
 
-[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/releases/tag/v0.1.0

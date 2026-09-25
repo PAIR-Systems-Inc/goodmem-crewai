@@ -13,8 +13,8 @@ as tools an agent can call directly.
 pip install crewai-goodmem
 ```
 
-Python 3.11–3.13, CrewAI 1.15+. Runtime dependencies are `crewai` and the
-official `goodmem` SDK.
+Python 3.11–3.13, CrewAI 1.15.9+. Runtime dependencies are `crewai` and the
+official `goodmem` SDK (0.1.34+).
 
 Set `GOODMEM_BASE_URL` and `GOODMEM_API_KEY`, or pass `base_url`/`api_key`, or
 inject a configured `Goodmem` client.
@@ -22,8 +22,7 @@ inject a configured `Goodmem` client.
 ## As a knowledge backend
 
 ```python
-from crewai import Agent, Crew, Task
-from crewai.knowledge import Knowledge
+from crewai import Agent, Crew, Knowledge, Task
 from crewai_goodmem import GoodMemKnowledgeStorage
 
 storage = GoodMemKnowledgeStorage(space_id="<space-id>", reranker_id="<reranker-id>")
@@ -46,6 +45,7 @@ how many results it returns, whether it reranks and any metadata filter are
 set by you, so a model cannot redirect the search mid-run.
 
 ```python
+from crewai import Agent
 from crewai_goodmem import GoodMemSearchTool
 
 search = GoodMemSearchTool(
@@ -58,6 +58,11 @@ search = GoodMemSearchTool(
 agent = Agent(role="Researcher", goal="Answer from the knowledge base",
               backstory="You cite sources.", tools=[search])
 ```
+
+`metadata_filter` values are compared as their own JSON type: a `str` as text,
+a `bool` as a boolean and an `int`/`float` as a number, so `{"archived": True}`
+matches a stored `true`. Any other value (`None`, a list, a dict) is refused
+with `ValueError`; use `filter` to pass an expression directly.
 
 Results carry `partial` and `statuses`. If part of a search failed — a reranker
 was unavailable, one space was unreachable — you get the usable passages *and*
@@ -82,6 +87,13 @@ returns a bare list, so in that case it emits a warning and a log line instead.
 Space, memory and file tools carry the authority of the configured API key.
 Give them only to crews that need it.
 
+Every id, whether a model passes it or you configure it, must be a UUID;
+anything else is refused before a request is made (a tool returns a
+`ToolFailure` with reason `INVALID_INPUT`, `GoodMemKnowledgeStorage` and
+`wait_for_memories` raise `ValueError`), because the SDK puts ids into the URL
+path unescaped and an id such as `../spaces/<id>` would otherwise send the call
+to a different resource.
+
 ## Waiting for indexing
 
 Searching is not a way to wait for a write. `GoodMemCreateMemoryTool` waits for
@@ -98,6 +110,10 @@ through. The untouched server value is kept as `metadata["raw_score"]`, and
 
 Neither scale is 0–1. `score_threshold` is therefore applied only when a
 reranker produced the scores; without one it is ignored with a warning.
+`score_kind` follows what the server did, not what was configured: if the
+reranker fails (`RERANKING_FAILED`, or `NOT_FOUND` for the reranker), the
+server still returns the vector search's hits, and they are kept as `"vector"`
+results — negated, not thresholded, and flagged partial with the statuses.
 
 Even with a reranker, the scale is **model-dependent**: on the same documents
 Voyage `rerank-2.5` scored `0.27..0.93` and Jina `jina-reranker-v3` scored
@@ -111,11 +127,13 @@ silent empty list. Calibrate the threshold for the reranker you use.
 ```bash
 uv sync --extra dev
 uv run ruff check . && uv run ruff format --check . && uv run mypy src
-uv run pytest -m "not e2e"    # offline, SDK driven over a mock transport
-GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… GOODMEM_RERANKER_ID=… GOODMEM_VERIFY_SSL=false uv run pytest -m e2e
+uv run pytest -m "not e2e"    # offline: the SDK over a mock transport and a local HTTP server
+GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… GOODMEM_VERIFY_SSL=false uv run pytest -m e2e
 ```
 
-`GOODMEM_RERANKER_ID` is optional — the reranker tests skip without it.
+`tests/test_readme.py` runs every Python snippet in this README, as written,
+against a local mock server; CI runs it as its own step.
+
 `GOODMEM_VERIFY_SSL=false` is for a local server with a self-signed certificate.
 
 Apache-2.0.

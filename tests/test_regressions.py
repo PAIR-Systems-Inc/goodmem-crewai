@@ -35,6 +35,14 @@ from .conftest import (
 )
 
 
+# GoodMem ids are UUIDs, and the integration refuses anything else before a
+# request is made (see test_id_validation.py), so configured ids are real ones.
+SPACE = "01a0ace4-678d-7459-aa91-b6ccd46d97d8"
+RERANKER = "019cfd1c-c033-7517-b7de-f73941a0464c"
+MEMORY = "019d2a7e-44c1-7b3a-9e0f-5a1b2c3d4e5f"
+PDF_MEMORY = "019d2a7e-44c1-7b3a-9e0f-5a1b2c3d4e60"
+
+
 # ---------------------------------------------------------------- P2
 def test_update_space_cannot_send_public_read():
     """live: PUT with publicRead returned HTTP 400 'Unrecognized field'."""
@@ -49,8 +57,10 @@ def test_update_space_cannot_send_public_read():
 
 
 def test_update_space_sends_only_known_fields(client, recorder):
-    recorder.route("PUT", "/spaces/s1", httpx.Response(200, json=space_json("s1", "n")))
-    result = GoodMemUpdateSpaceTool(client=client)._run(space_id="s1", name="n")
+    recorder.route(
+        "PUT", f"/spaces/{SPACE}", httpx.Response(200, json=space_json(SPACE, "n"))
+    )
+    result = GoodMemUpdateSpaceTool(client=client)._run(space_id=SPACE, name="n")
     assert not isinstance(result, ToolFailure), result
     body = recorder.body()
     assert "publicRead" not in body
@@ -75,7 +85,7 @@ def test_failed_reranking_is_not_reported_as_success(client, recorder):
             status_event("RERANKING_FAILED", "Failed to create reranker client"),
         ),
     )
-    tool = GoodMemSearchTool(client=client, space_ids=["s1"], reranker_id="missing")
+    tool = GoodMemSearchTool(client=client, space_ids=[SPACE], reranker_id=RERANKER)
     payload = json.loads(tool._run(query="anything"))
 
     assert payload["partial"] is True, "degraded retrieval must be flagged"
@@ -95,7 +105,7 @@ def test_total_failure_is_empty_and_flagged_not_a_tool_failure(client, recorder)
         ":retrieve",
         ndjson(status_event("VECTOR_SEARCH_FAILED", "search backend unavailable")),
     )
-    tool = GoodMemSearchTool(client=client, space_ids=["s1"])
+    tool = GoodMemSearchTool(client=client, space_ids=[SPACE])
     result = tool._run(query="anything")
 
     assert not isinstance(result, ToolFailure)
@@ -113,7 +123,7 @@ def test_knowledge_storage_total_failure_warns_and_returns_empty(client, recorde
         ":retrieve",
         ndjson(status_event("SPACE_NOT_FOUND", "space gone")),
     )
-    storage = GoodMemKnowledgeStorage(client=client, space_id="s1")
+    storage = GoodMemKnowledgeStorage(client=client, space_id=SPACE)
     with pytest.warns(UserWarning, match="SPACE_NOT_FOUND"):
         results = storage.search(["q"], limit=5, score_threshold=0.0)
     assert results == []
@@ -137,7 +147,7 @@ def test_feature_disabled_is_informational_whatever_its_details(client, recorder
         ),
     )
     payload = json.loads(
-        GoodMemSearchTool(client=client, space_ids=["s1"])._run(query="q")
+        GoodMemSearchTool(client=client, space_ids=[SPACE])._run(query="q")
     )
     assert payload["partial"] is False
     assert "statuses" not in payload
@@ -161,7 +171,7 @@ def test_informational_notice_is_not_a_failure(client, recorder):
         ),
     )
     payload = json.loads(
-        GoodMemSearchTool(client=client, space_ids=["s1"])._run(query="q")
+        GoodMemSearchTool(client=client, space_ids=[SPACE])._run(query="q")
     )
     assert payload["partial"] is False
     assert "statuses" not in payload
@@ -181,7 +191,7 @@ def test_unknown_future_status_code_does_not_discard_results(client, recorder):
         ),
     )
     payload = json.loads(
-        GoodMemSearchTool(client=client, space_ids=["s1"])._run(query="q")
+        GoodMemSearchTool(client=client, space_ids=[SPACE])._run(query="q")
     )
 
     assert payload["total_results"] == 1, "unknown code must not discard chunks"
@@ -194,7 +204,7 @@ def test_unknown_future_status_code_does_not_discard_results(client, recorder):
 def test_search_makes_exactly_one_request(client, recorder):
     """live: an empty space cost 12.2s of polling in 0.1.1 vs 0.3s without."""
     recorder.route("POST", ":retrieve", ndjson())
-    tool = GoodMemSearchTool(client=client, space_ids=["s1"])
+    tool = GoodMemSearchTool(client=client, space_ids=[SPACE])
     payload = json.loads(tool._run(query="nothing here"))
 
     assert payload["total_results"] == 0
@@ -238,7 +248,7 @@ def test_upload_refuses_paths_outside_the_configured_directory(tmp_path):
     secret.write_text("PRIVATE")
 
     tool = GoodMemUploadFileTool(
-        space_id="s", upload_dir=str(allowed), base_url="https://x", api_key="k"
+        space_id=SPACE, upload_dir=str(allowed), base_url="https://x", api_key="k"
     )
 
     for escape in ("../secret.txt", str(secret), "/etc/passwd"):
@@ -255,14 +265,14 @@ def test_upload_refuses_symlink_escape(tmp_path):
     (allowed / "link.txt").symlink_to(secret)
 
     tool = GoodMemUploadFileTool(
-        space_id="s", upload_dir=str(allowed), base_url="https://x", api_key="k"
+        space_id=SPACE, upload_dir=str(allowed), base_url="https://x", api_key="k"
     )
     result = tool._run(file_name="link.txt")
     assert isinstance(result, ToolFailure)
 
 
 def test_upload_is_disabled_until_a_directory_is_configured(tmp_path):
-    tool = GoodMemUploadFileTool(space_id="s", base_url="https://x", api_key="k")
+    tool = GoodMemUploadFileTool(space_id=SPACE, base_url="https://x", api_key="k")
     result = tool._run(file_name="anything.txt")
     assert isinstance(result, ToolFailure)
     assert "upload_dir" in result.message
@@ -276,7 +286,9 @@ def test_create_memory_takes_no_file_path():
 # ---------------------------------------------------------------- P21
 def test_api_key_is_not_serialized():
     """local: 0.1.1 exposed the key in model_dump() and repr()."""
-    tool = GoodMemSearchTool(space_ids=["s"], base_url="https://x", api_key="sk-SECRET")
+    tool = GoodMemSearchTool(
+        space_ids=[SPACE], base_url="https://x", api_key="sk-SECRET"
+    )
     assert "sk-SECRET" not in json.dumps(tool.model_dump(), default=str)
     assert "sk-SECRET" not in repr(tool)
     assert tool.api_key.get_secret_value() == "sk-SECRET"
@@ -293,12 +305,12 @@ def test_developer_configuration_is_not_model_reachable(client, recorder):
     recorder.route("POST", ":retrieve", ndjson())
     tool = GoodMemSearchTool(
         client=client,
-        space_ids=["configured-space"],
+        space_ids=[SPACE],
         filter="CAST(val('$.a') AS TEXT) = 'b'",
     )
     tool._run(query="q")
     body = recorder.body()
-    assert body["spaceKeys"][0]["spaceId"] == "configured-space"
+    assert body["spaceKeys"][0]["spaceId"] == SPACE
     assert body["spaceKeys"][0]["filter"] == "CAST(val('$.a') AS TEXT) = 'b'"
 
 
@@ -316,7 +328,7 @@ def test_real_vector_scores_are_presented_higher_is_better(client, recorder):
     recorder.route(
         "POST", ":retrieve", ndjson(memory_event("m1"), chunk_event("c1", "text", "m1"))
     )
-    storage = GoodMemKnowledgeStorage(client=client, space_id="s1")
+    storage = GoodMemKnowledgeStorage(client=client, space_id=SPACE)
     with pytest.warns(UserWarning, match="score_threshold is ignored"):
         results = storage.search(["q"], limit=5, score_threshold=0.6)
 
@@ -340,7 +352,7 @@ def test_vector_negation_keeps_server_order_sortable(client, recorder):
             chunk_event("c2", "worse", "m1", score=-0.3873),
         ),
     )
-    storage = GoodMemKnowledgeStorage(client=client, space_id="s1")
+    storage = GoodMemKnowledgeStorage(client=client, space_id=SPACE)
     with pytest.warns(UserWarning):
         results = storage.search(["q"], limit=5, score_threshold=0.6)
     assert [r["content"] for r in results] == ["best", "worse"]
@@ -355,7 +367,9 @@ def test_reranker_scores_are_not_negated(client, recorder):
         ":retrieve",
         ndjson(memory_event("m1"), chunk_event("c1", "strong", "m1", score=0.91)),
     )
-    storage = GoodMemKnowledgeStorage(client=client, space_id="s1", reranker_id="rr")
+    storage = GoodMemKnowledgeStorage(
+        client=client, space_id=SPACE, reranker_id=RERANKER
+    )
     results = storage.search(["q"], limit=5, score_threshold=0.0)
     assert results[0]["score"] == 0.91
     assert results[0]["metadata"]["raw_score"] == 0.91
@@ -371,7 +385,9 @@ def test_threshold_applies_when_a_reranker_produced_the_scores(client, recorder)
             chunk_event("c2", "weak", "m1", score=0.10),
         ),
     )
-    storage = GoodMemKnowledgeStorage(client=client, space_id="s1", reranker_id="r1")
+    storage = GoodMemKnowledgeStorage(
+        client=client, space_id=SPACE, reranker_id=RERANKER
+    )
     results = storage.search(["q"], limit=5, score_threshold=0.6)
 
     assert [r["id"] for r in results] == ["c1"]
@@ -391,7 +407,7 @@ def test_two_chunks_of_one_memory_are_two_results(client, recorder):
         ),
     )
     payload = json.loads(
-        GoodMemSearchTool(client=client, space_ids=["s1"])._run(query="q")
+        GoodMemSearchTool(client=client, space_ids=[SPACE])._run(query="q")
     )
     assert payload["total_results"] == 2
     assert {r["chunk_text"] for r in payload["results"]} == {
@@ -411,7 +427,7 @@ def test_metadata_is_joined_even_when_the_definition_arrives_last(client, record
         ),
     )
     payload = json.loads(
-        GoodMemSearchTool(client=client, space_ids=["s1"])._run(query="q")
+        GoodMemSearchTool(client=client, space_ids=[SPACE])._run(query="q")
     )
     assert payload["results"][0]["metadata"]["title"] == "Quarterly report"
 
@@ -422,11 +438,11 @@ def test_get_memory_returns_readable_text_in_one_request(client, recorder):
     to be decoded rather than handed to the agent as base64."""
     recorder.route(
         "GET",
-        "/v1/memories/m1",
+        f"/v1/memories/{MEMORY}",
         # "aGVsbG8gd29ybGQ=" is how the server really sends "hello world".
-        httpx.Response(200, json=memory_json("m1", content_b64="aGVsbG8gd29ybGQ=")),
+        httpx.Response(200, json=memory_json(MEMORY, content_b64="aGVsbG8gd29ybGQ=")),
     )
-    payload = json.loads(GoodMemGetMemoryTool(client=client)._run(memory_id="m1"))
+    payload = json.loads(GoodMemGetMemoryTool(client=client)._run(memory_id=MEMORY))
 
     assert payload["content"] == "hello world", "readable text, not base64"
     assert "original_content" not in payload
@@ -436,15 +452,15 @@ def test_get_memory_returns_readable_text_in_one_request(client, recorder):
 def test_get_memory_describes_binary_content_instead_of_dumping_it(client, recorder):
     recorder.route(
         "GET",
-        "/v1/memories/m2",
+        f"/v1/memories/{PDF_MEMORY}",
         httpx.Response(
             200,
             json=memory_json(
-                "m2", content_b64="JVBERi0xLjQK", content_type="application/pdf"
+                PDF_MEMORY, content_b64="JVBERi0xLjQK", content_type="application/pdf"
             ),
         ),
     )
-    payload = json.loads(GoodMemGetMemoryTool(client=client)._run(memory_id="m2"))
+    payload = json.loads(GoodMemGetMemoryTool(client=client)._run(memory_id=PDF_MEMORY))
     assert "content" not in payload
     assert "application/pdf" in payload["content_omitted"]
 
@@ -490,7 +506,7 @@ def test_mapping_filter_ands_clauses():
 # ---------------------------------------------------------------- P22 / P33
 def test_injected_client_is_used_and_not_closed(client, recorder):
     recorder.route("POST", ":retrieve", ndjson())
-    tool = GoodMemSearchTool(client=client, space_ids=["s1"])
+    tool = GoodMemSearchTool(client=client, space_ids=[SPACE])
     tool._run(query="q")
     tool._run(query="q again")
     assert len(recorder.requests) == 2, "the injected client stays usable"
@@ -500,7 +516,7 @@ def test_environment_cannot_redirect_an_injected_client(client, recorder, monkey
     monkeypatch.setenv("GOODMEM_BASE_URL", "https://attacker.example")
     monkeypatch.setenv("GOODMEM_API_KEY", "other-key")
     recorder.route("POST", ":retrieve", ndjson())
-    GoodMemSearchTool(client=client, space_ids=["s1"])._run(query="q")
+    GoodMemSearchTool(client=client, space_ids=[SPACE])._run(query="q")
     assert recorder.requests[0].url.host == "goodmem.test"
 
 
@@ -518,7 +534,9 @@ def test_a_threshold_that_removes_every_reranked_result_says_so(client, recorder
             chunk_event("c2", "next", "m1", score=-0.14),
         ),
     )
-    storage = GoodMemKnowledgeStorage(client=client, space_id="s1", reranker_id="jina")
+    storage = GoodMemKnowledgeStorage(
+        client=client, space_id=SPACE, reranker_id=RERANKER
+    )
     with pytest.warns(UserWarning, match="removed all 2 reranked result"):
         results = storage.search(["q"], limit=5, score_threshold=0.6)
     assert results == []
