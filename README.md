@@ -13,8 +13,8 @@ as tools an agent can call directly.
 pip install crewai-goodmem
 ```
 
-Python 3.11–3.13, CrewAI 1.15+. Runtime dependencies are `crewai` and the
-official `goodmem` SDK.
+Python 3.11–3.13, CrewAI 1.15.9+. Runtime dependencies are `crewai` and the
+official `goodmem` SDK (0.1.34+).
 
 Set `GOODMEM_BASE_URL` and `GOODMEM_API_KEY`, or pass `base_url`/`api_key`, or
 inject a configured `Goodmem` client.

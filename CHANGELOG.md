@@ -65,6 +65,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filter that can never match; `GoodMemSearchTool` returns that as an
   `INVALID_INPUT` `ToolFailure` without making a request. The new
   `filters.equals()` builds one typed comparison.
+- **The declared CrewAI floor could not import the package.** `crewai>=1.15`
+  admitted 1.15.0–1.15.8, which do not ship `crewai.tools.tool_failure`
+  (first in 1.15.9); installing at the lowest allowed versions gave
+  crewai 1.15.0 and `ModuleNotFoundError` on `import crewai_goodmem`. The
+  requirement is now `crewai>=1.15.9`. A new CI job installs the built wheel
+  with `uv pip install --resolution lowest`, checks that exactly the declared
+  floors (crewai 1.15.9, goodmem 0.1.34) were installed and that the wheel is
+  what imports, and runs the offline suite there. The `goodmem>=0.1.34` floor
+  passes that job unchanged.
 
 ### Changed
 
