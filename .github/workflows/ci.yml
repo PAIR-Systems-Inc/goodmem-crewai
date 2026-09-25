@@ -45,6 +45,9 @@ jobs:
       - name: mypy
         run: uv run mypy src
 
+      - name: README snippets run (against a local mock server)
+        run: uv run pytest tests/test_readme.py -v
+
       - name: pytest
         run: uv run pytest -m "not e2e"
 

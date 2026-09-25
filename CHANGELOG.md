@@ -74,6 +74,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   floors (crewai 1.15.9, goodmem 0.1.34) were installed and that the wheel is
   what imports, and runs the offline suite there. The `goodmem>=0.1.34` floor
   passes that job unchanged.
+- **The README quickstarts did not run.** The knowledge-backend snippet failed
+  on its second line, `from crewai.knowledge import Knowledge`
+  (`crewai/knowledge/__init__.py` is empty; the class is exported as
+  `from crewai import Knowledge`), and the agent-tool snippet used `Agent`
+  without importing it. Both are fixed, and `tests/test_readme.py` (its own
+  CI step) executes every Python snippet in the README against a local mock
+  server and then uses what it built: `knowledge.query()` and `search.run()`
+  must each reach GoodMem.
 
 ### Changed
 
