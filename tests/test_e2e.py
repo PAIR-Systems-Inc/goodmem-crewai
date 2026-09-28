@@ -19,6 +19,8 @@ from crewai_goodmem import (
     GoodMemCreateMemoryTool,
     GoodMemGetMemoryTool,
     GoodMemKnowledgeStorage,
+    GoodMemListEmbeddersTool,
+    GoodMemListRerankersTool,
     GoodMemListSpacesTool,
     GoodMemSearchTool,
     GoodMemUpdateSpaceTool,
@@ -130,6 +132,57 @@ def test_invalid_reranker_is_reported_not_hidden(indexed_space, conn):
         assert payload["partial"] is True, "reranking failed; results must be flagged"
         codes = {s.get("code") for s in payload["statuses"]}
         assert codes & {"RERANKING_FAILED", "NOT_FOUND"}, codes
+        # The server falls back to vector hits; they are labelled by what
+        # happened, not by the reranker that was configured.
+        assert {h["score_kind"] for h in payload["results"]} <= {"vector"}
+
+
+def test_knowledge_storage_keeps_fallback_hits_when_the_reranker_fails(
+    indexed_space, conn
+):
+    """0.2.1 thresholded the fallback's vector scores at CrewAI's default 0.6
+    as if a reranker had produced them, and returned []."""
+    storage = GoodMemKnowledgeStorage(
+        space_id=indexed_space,
+        reranker_id="00000000-0000-0000-0000-000000000000",
+        **conn,
+    )
+    results = storage.search(["audit codeword"])  # default score_threshold
+    assert results, "the server's fallback hits must not be discarded"
+    for result in results:
+        assert result["metadata"]["score_kind"] == "vector"
+        assert result["metadata"]["goodmem_partial"] is True
+        assert result["score"] == -result["metadata"]["raw_score"]
+
+
+def test_boolean_metadata_filter_matches_a_stored_boolean(space, conn):
+    """0.2.1 compared True as the text 'True', which matched nothing."""
+    created = GoodMemCreateMemoryTool(space_id=space, **conn)._run(
+        text_content="Flagged note about the audit codeword.",
+        metadata={"flag": True},
+    )
+    assert not isinstance(created, ToolFailure), created
+
+    def total(value: bool) -> int:
+        result = GoodMemSearchTool(
+            space_ids=[space], metadata_filter={"flag": value}, **conn
+        )._run(query="audit codeword")
+        assert not isinstance(result, ToolFailure), result
+        return int(json.loads(result)["total_results"])
+
+    assert total(True) >= 1
+    assert total(False) == 0
+
+
+def test_list_embedders_and_rerankers(conn):
+    """0.2.1 failed both on every call: the SDK's list() takes no max_items."""
+    embedders = GoodMemListEmbeddersTool(**conn)._run()
+    assert not isinstance(embedders, ToolFailure), embedders
+    ids = {e["embedder_id"] for e in json.loads(embedders)["embedders"]}
+    if EMBEDDER:
+        assert EMBEDDER in ids
+    rerankers = GoodMemListRerankersTool(**conn)._run()
+    assert not isinstance(rerankers, ToolFailure), rerankers
 
 
 def test_metadata_filter_is_applied_server_side(indexed_space, conn):

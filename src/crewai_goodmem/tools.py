@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Sequence
 import json
 import time
 from typing import Any, ClassVar, Literal
@@ -20,7 +21,13 @@ from goodmem.errors import (
 from pydantic import BaseModel, ConfigDict, Field
 
 from crewai_goodmem._connection import GoodMemConnection
-from crewai_goodmem._results import abstract_reply, classify, hits_from_events
+from crewai_goodmem._ids import UuidStr, require_uuid
+from crewai_goodmem._results import (
+    abstract_reply,
+    classify,
+    hits_from_events,
+    was_reranked,
+)
 from crewai_goodmem._uploads import GoodMemUploadError, resolve_upload_path
 from crewai_goodmem.filters import combine, from_mapping
 
@@ -118,12 +125,23 @@ class GoodMemSearchTool(_GoodMemBaseTool):
     def _run(self, query: str) -> Any:
         if not query.strip():
             return _failure(ValueError("query must not be empty"), "Search rejected")
+        try:
+            space_ids = [
+                require_uuid(sid, f"space_ids[{i}]")
+                for i, sid in enumerate(self.space_ids)
+            ]
+            reranker_id = (
+                require_uuid(self.reranker_id, "reranker_id")
+                if self.reranker_id is not None
+                else None
+            )
+            expression = combine(
+                self.filter,
+                from_mapping(self.metadata_filter) if self.metadata_filter else None,
+            )
+        except ValueError as exc:
+            return _failure(exc, "Search rejected")
 
-        expression = combine(
-            self.filter,
-            from_mapping(self.metadata_filter) if self.metadata_filter else None,
-        )
-        reranked = bool(self.reranker_id)
         kwargs: dict[str, Any] = {
             "message": query,
             "requested_size": self.fetch_k or self.k,
@@ -131,13 +149,13 @@ class GoodMemSearchTool(_GoodMemBaseTool):
             "stream": False,
         }
         if expression is None:
-            kwargs["space_ids"] = list(self.space_ids)
+            kwargs["space_ids"] = space_ids
         else:
             kwargs["space_keys"] = [
-                {"spaceId": sid, "filter": expression} for sid in self.space_ids
+                {"spaceId": sid, "filter": expression} for sid in space_ids
             ]
-        if reranked:
-            kwargs["reranker_id"] = self.reranker_id
+        if reranker_id is not None:
+            kwargs["reranker_id"] = reranker_id
             kwargs["max_results"] = self.k
 
         try:
@@ -147,6 +165,9 @@ class GoodMemSearchTool(_GoodMemBaseTool):
             return _failure(exc, "Search failed")
 
         statuses, degraded = classify(events)
+        # A failed reranker still returns the vector hits: label them by what
+        # the server did, not by what was configured.
+        reranked = was_reranked(events, requested=reranker_id is not None)
         hits = hits_from_events(events, reranked=reranked)[: self.k]
 
         payload: dict[str, Any] = {
@@ -201,45 +222,57 @@ class GoodMemListSpacesTool(_GoodMemBaseTool):
         )
 
 
+def _capped(items: Sequence[Any], max_items: int | None, key: str) -> str:
+    """Render a complete, unpaginated listing, keeping at most ``max_items``.
+
+    ``embedders.list()`` and ``rerankers.list()`` are not paginated: the server
+    returns every match in one response and the SDK hands back a plain list,
+    so the cap is applied here and ``truncated`` is exact.
+    """
+    kept = items if max_items is None else items[:max_items]
+    return json.dumps(
+        {
+            key: [item.model_dump(exclude_none=True) for item in kept],
+            "returned": len(kept),
+            "truncated": len(kept) < len(items),
+        },
+        default=str,
+    )
+
+
 class GoodMemListEmbeddersTool(_GoodMemBaseTool):
     name: str = "GoodMemListEmbedders"
     description: str = "List embedders available for creating GoodMem spaces."
     args_schema: type[BaseModel] = _Empty
-    max_items: int | None = 100
+    max_items: int | None = Field(default=100, ge=0)
 
     def _run(self) -> Any:
         try:
             with self._session() as client:
-                items = [
-                    e.model_dump(exclude_none=True)
-                    for e in client.embedders.list(max_items=self.max_items)
-                ]
+                embedders = client.embedders.list()
+            return _capped(embedders, self.max_items, "embedders")
         except Exception as exc:
             return _failure(exc, "Failed to list embedders")
-        return json.dumps({"embedders": items, "returned": len(items)}, default=str)
 
 
 class GoodMemListRerankersTool(_GoodMemBaseTool):
     name: str = "GoodMemListRerankers"
     description: str = "List rerankers available to improve search result ordering."
     args_schema: type[BaseModel] = _Empty
-    max_items: int | None = 100
+    max_items: int | None = Field(default=100, ge=0)
 
     def _run(self) -> Any:
         try:
             with self._session() as client:
-                items = [
-                    r.model_dump(exclude_none=True)
-                    for r in client.rerankers.list(max_items=self.max_items)
-                ]
+                rerankers = client.rerankers.list()
+            return _capped(rerankers, self.max_items, "rerankers")
         except Exception as exc:
             return _failure(exc, "Failed to list rerankers")
-        return json.dumps({"rerankers": items, "returned": len(items)}, default=str)
 
 
 # ============================================================ spaces
 class GetSpaceSchema(BaseModel):
-    space_id: str = Field(..., description="The UUID of the space.")
+    space_id: UuidStr = Field(..., description="The UUID of the space.")
 
 
 class GoodMemGetSpaceTool(_GoodMemBaseTool):
@@ -249,6 +282,7 @@ class GoodMemGetSpaceTool(_GoodMemBaseTool):
 
     def _run(self, space_id: str) -> Any:
         try:
+            space_id = require_uuid(space_id, "space_id")
             with self._session() as client:
                 return json.dumps(
                     client.spaces.get(id=space_id).model_dump(exclude_none=True),
@@ -283,10 +317,11 @@ class GoodMemCreateSpaceTool(_GoodMemBaseTool):
 
     def _run(self, name: str) -> Any:
         try:
+            embedder_id = require_uuid(self.embedder_id, "embedder_id")
             with self._session() as client:
                 kwargs: dict[str, Any] = {
                     "name": name,
-                    "space_embedders": [{"embedderId": self.embedder_id}],
+                    "space_embedders": [{"embedderId": embedder_id}],
                 }
                 if self.chunking_config:
                     kwargs["default_chunking_config"] = self.chunking_config
@@ -308,7 +343,7 @@ class GoodMemCreateSpaceTool(_GoodMemBaseTool):
 
 
 class UpdateSpaceSchema(BaseModel):
-    space_id: str = Field(..., description="The UUID of the space to update.")
+    space_id: UuidStr = Field(..., description="The UUID of the space to update.")
     name: str | None = Field(default=None, description="New name for the space.")
     merge_labels: dict[str, str] | None = Field(
         default=None,
@@ -358,6 +393,7 @@ class GoodMemUpdateSpaceTool(_GoodMemBaseTool):
         if replace_labels:
             request["replaceLabels"] = replace_labels
         try:
+            space_id = require_uuid(space_id, "space_id")
             with self._session() as client:
                 space = client.spaces.update(id=space_id, request=request)
             return json.dumps(space.model_dump(exclude_none=True), default=str)
@@ -366,7 +402,7 @@ class GoodMemUpdateSpaceTool(_GoodMemBaseTool):
 
 
 class DeleteSpaceSchema(BaseModel):
-    space_id: str = Field(..., description="The UUID of the space to delete.")
+    space_id: UuidStr = Field(..., description="The UUID of the space to delete.")
 
 
 class GoodMemDeleteSpaceTool(_GoodMemBaseTool):
@@ -378,6 +414,7 @@ class GoodMemDeleteSpaceTool(_GoodMemBaseTool):
 
     def _run(self, space_id: str) -> Any:
         try:
+            space_id = require_uuid(space_id, "space_id")
             with self._session() as client:
                 client.spaces.delete(id=space_id)
             return json.dumps({"deleted": True, "space_id": space_id})
@@ -415,9 +452,10 @@ class GoodMemCreateMemoryTool(_GoodMemBaseTool):
             return _failure(ValueError("text_content must not be empty"), "Rejected")
         memory_id = None
         try:
+            space_id = require_uuid(self.space_id, "space_id")
             with self._session() as client:
                 memory = client.memories.create(
-                    space_id=self.space_id,
+                    space_id=space_id,
                     original_content=text_content,
                     content_type="text/plain",
                     metadata=metadata or None,
@@ -427,7 +465,7 @@ class GoodMemCreateMemoryTool(_GoodMemBaseTool):
                 if self.wait:
                     status = _wait_one(client, memory_id, self.indexing_timeout)
             return json.dumps(
-                {"memory_id": memory_id, "space_id": self.space_id, "status": status},
+                {"memory_id": memory_id, "space_id": space_id, "status": status},
                 default=str,
             )
         except Exception as exc:
@@ -495,7 +533,8 @@ class GoodMemUploadFileTool(_GoodMemBaseTool):
     def _run(self, file_name: str, metadata: dict[str, Any] | None = None) -> Any:
         try:
             path = resolve_upload_path(file_name, self.upload_dir)
-        except GoodMemUploadError as exc:
+            space_id = require_uuid(self.space_id, "space_id")
+        except ValueError as exc:  # GoodMemUploadError is a ValueError
             return _failure(exc, "Upload refused")
 
         content_type = self._MIME.get(path.suffix.lower(), "application/octet-stream")
@@ -503,7 +542,7 @@ class GoodMemUploadFileTool(_GoodMemBaseTool):
         merged_metadata = dict(metadata or {})
         merged_metadata.setdefault("title", path.name)
         kwargs: dict[str, Any] = {
-            "space_id": self.space_id,
+            "space_id": space_id,
             "content_type": content_type,
             "metadata": merged_metadata,
         }
@@ -538,7 +577,7 @@ class GoodMemUploadFileTool(_GoodMemBaseTool):
 
 
 class ListMemoriesSchema(BaseModel):
-    space_id: str = Field(..., description="The UUID of the space.")
+    space_id: UuidStr = Field(..., description="The UUID of the space.")
     status_filter: Literal["PENDING", "PROCESSING", "COMPLETED", "FAILED"] | None = (
         Field(
             default=None, description="Only return memories in this processing state."
@@ -560,6 +599,7 @@ class GoodMemListMemoriesTool(_GoodMemBaseTool):
         | None = None,
     ) -> Any:
         try:
+            space_id = require_uuid(space_id, "space_id")
             with self._session() as client:
                 page = client.memories.list(
                     space_id=space_id,
@@ -582,7 +622,7 @@ class GoodMemListMemoriesTool(_GoodMemBaseTool):
 
 
 class GetMemorySchema(BaseModel):
-    memory_id: str = Field(..., description="The UUID of the memory.")
+    memory_id: UuidStr = Field(..., description="The UUID of the memory.")
     include_content: bool = Field(
         default=True, description="Include the stored content, not only metadata."
     )
@@ -614,6 +654,7 @@ class GoodMemGetMemoryTool(_GoodMemBaseTool):
 
     def _run(self, memory_id: str, include_content: bool = True) -> Any:
         try:
+            memory_id = require_uuid(memory_id, "memory_id")
             with self._session() as client:
                 memory = client.memories.get(
                     id=memory_id, include_content=include_content or None
@@ -649,7 +690,7 @@ class GoodMemGetMemoryTool(_GoodMemBaseTool):
 
 
 class DeleteMemorySchema(BaseModel):
-    memory_id: str = Field(..., description="The UUID of the memory to delete.")
+    memory_id: UuidStr = Field(..., description="The UUID of the memory to delete.")
 
 
 class GoodMemDeleteMemoryTool(_GoodMemBaseTool):
@@ -659,6 +700,7 @@ class GoodMemDeleteMemoryTool(_GoodMemBaseTool):
 
     def _run(self, memory_id: str) -> Any:
         try:
+            memory_id = require_uuid(memory_id, "memory_id")
             with self._session() as client:
                 client.memories.delete(id=memory_id)
             return json.dumps({"deleted": True, "memory_id": memory_id})
@@ -668,6 +710,8 @@ class GoodMemDeleteMemoryTool(_GoodMemBaseTool):
 
 # ============================================================ helpers
 def _wait_one(client: Any, memory_id: str, timeout: float) -> str:
+    # Callers pass ids from the server and from developers; both become a path.
+    memory_id = require_uuid(memory_id, "memory_id")
     deadline = time.monotonic() + timeout
     while True:
         status = str(client.memories.get(id=memory_id).processing_status)
@@ -693,9 +737,15 @@ def wait_for_memories(
     """
     if not memory_ids:
         return {}
+    # Every id is checked before the first request, and results stay keyed
+    # by the id as the caller wrote it.
+    checked = {
+        memory_id: require_uuid(memory_id, f"memory_ids[{i}]")
+        for i, memory_id in enumerate(memory_ids)
+    }
     conn = connection or GoodMemConnection()
     out: dict[str, str] = {}
     with conn._session() as client:
-        for memory_id in dict.fromkeys(memory_ids):
-            out[memory_id] = _wait_one(client, memory_id, timeout)
+        for memory_id, canonical in checked.items():
+            out[memory_id] = _wait_one(client, canonical, timeout)
     return out

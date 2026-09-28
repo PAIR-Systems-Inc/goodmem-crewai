@@ -45,6 +45,9 @@ jobs:
       - name: mypy
         run: uv run mypy src
 
+      - name: README snippets run (against a local mock server)
+        run: uv run pytest tests/test_readme.py -v
+
       - name: pytest
         run: uv run pytest -m "not e2e"
 
@@ -56,3 +59,61 @@ jobs:
           uv venv .venv-smoke --python ${{ matrix.python-version }}
           uv pip install --python .venv-smoke/bin/python dist/crewai_goodmem-*.whl
           .venv-smoke/bin/python -c "from crewai_goodmem import GoodMemKnowledgeStorage, GoodMemSearchTool, __version__; print(f'crewai-goodmem {__version__} OK')"
+
+  floor:
+    # The declared minimums must really work: crewai>=1.15 once admitted
+    # 1.15.0-1.15.8, which cannot import this package.
+    name: lowest supported versions (py3.11)
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Build wheel
+        run: uv build --wheel --out-dir dist-floor
+
+      # --resolution lowest, not lowest-direct: the wheel is the only direct
+      # requirement, so lowest-direct would leave crewai and goodmem at their
+      # newest. --only-binary: the lowest resolution otherwise picks ancient
+      # sdist-only transitive releases (sympy 0.5.14 via onnxruntime) that do
+      # not build; the wheel is installed from dist-floor for the same reason.
+      - name: Install the lowest versions the requirements allow
+        run: |
+          uv venv .venv-floor --python 3.11
+          uv pip install --python .venv-floor/bin/python \
+            --resolution lowest --only-binary :all: \
+            dist-floor/crewai_goodmem-*.whl "pytest>=8"
+
+      - name: Check the floors were installed and the wheel imports
+        run: |
+          .venv-floor/bin/python - <<'EOF'
+          import pathlib
+          import re
+          import tomllib
+          from importlib.metadata import version
+
+          import crewai_goodmem
+
+          deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["dependencies"]
+          floors = dict(re.fullmatch(r"([A-Za-z0-9_.-]+)>=([0-9.]+)", d).groups() for d in deps)
+          for name, floor in floors.items():
+              installed = version(name)
+              print(f"{name}: floor {floor}, installed {installed}")
+              assert installed == floor, f"{name} {installed} is not the declared floor {floor}"
+          where = pathlib.Path(crewai_goodmem.__file__).resolve()
+          assert ".venv-floor" in where.parts, f"imported {where}, not the installed wheel"
+          print(f"crewai_goodmem {crewai_goodmem.__version__} imported from {where}")
+          EOF
+
+      - name: Offline suite against the floor
+        run: .venv-floor/bin/python -m pytest -m "not e2e" -p no:cacheprovider
