@@ -11,10 +11,10 @@ from crewai.knowledge.storage.base_knowledge_storage import BaseKnowledgeStorage
 from goodmem import MemoryCreationRequest
 from pydantic import Field, PrivateAttr
 
-from crewai_goodmem._connection import GoodMemConnection
-from crewai_goodmem._ids import require_uuid
-from crewai_goodmem._results import classify, hits_from_events, was_reranked
-from crewai_goodmem.filters import combine, from_mapping
+from goodmem_crewai._connection import GoodMemConnection
+from goodmem_crewai._ids import require_uuid
+from goodmem_crewai._results import classify, hits_from_events, was_reranked
+from goodmem_crewai.filters import combine, from_mapping
 
 
 if TYPE_CHECKING:

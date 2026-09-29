@@ -7,19 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.1] — 2026-09-29
+## [0.4.0] — 2026-09-29
 
 ### Changed
 
-- **The PyPI distribution is renamed from `crewai-goodmem` to
-  `goodmem-crewai`.** The package moved into the PAIR Systems PyPI
-  organization under the `goodmem-<framework>` naming used by `goodmem-adk`
-  and `goodmem-semantic-kernel`. `crewai-goodmem` stays at 0.3.0. The import
-  package is unchanged: `from crewai_goodmem import ...` works as before.
-  Both distributions ship `crewai_goodmem` and would overwrite each other's
-  files, so remove the old one when switching:
-  `pip uninstall -y crewai-goodmem && pip install goodmem-crewai`.
-  No code changes.
+- **Breaking: renamed to `goodmem-crewai` (import `goodmem_crewai`).**
+  This follows the goodmem-<framework> naming used by goodmem-adk and
+  goodmem-semantic-kernel. Install with `pip install goodmem-crewai` and
+  update imports from `crewai_goodmem` to `goodmem_crewai`. No other code
+  changes.
 
 ## [0.3.0] — 2026-09-29
 
@@ -244,8 +240,8 @@ Requires CrewAI 1.15+.
 | Create-space reused a same-named space | Creation creates; a collision is a conflict |
 | `requests` | the official `goodmem` SDK |
 
-[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.3.0...v0.3.1
+[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.1...v0.2.0

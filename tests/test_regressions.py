@@ -13,7 +13,7 @@ from crewai.tools.tool_failure import ToolFailure
 import httpx
 import pytest
 
-from crewai_goodmem import (
+from goodmem_crewai import (
     GoodMemCreateMemoryTool,
     GoodMemGetMemoryTool,
     GoodMemKnowledgeStorage,
@@ -22,7 +22,7 @@ from crewai_goodmem import (
     GoodMemUpdateSpaceTool,
     GoodMemUploadFileTool,
 )
-from crewai_goodmem.filters import from_mapping, text_equals
+from goodmem_crewai.filters import from_mapping, text_equals
 
 from .conftest import (
     REAL_VECTOR_SCORE,

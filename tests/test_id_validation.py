@@ -27,7 +27,7 @@ from crewai.tools.tool_failure import ToolFailure, ToolFailureReason
 from crewai.utilities.agent_utils import convert_tools_to_openai_schema
 import pytest
 
-from crewai_goodmem import (
+from goodmem_crewai import (
     GoodMemConnection,
     GoodMemCreateMemoryTool,
     GoodMemCreateSpaceTool,

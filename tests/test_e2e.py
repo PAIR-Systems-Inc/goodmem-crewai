@@ -15,7 +15,7 @@ import uuid
 from crewai.tools.tool_failure import ToolFailure
 import pytest
 
-from crewai_goodmem import (
+from goodmem_crewai import (
     GoodMemCreateMemoryTool,
     GoodMemGetMemoryTool,
     GoodMemKnowledgeStorage,

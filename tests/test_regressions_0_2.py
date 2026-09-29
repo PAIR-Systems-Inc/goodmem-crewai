@@ -17,15 +17,15 @@ from goodmem import Goodmem
 import httpx
 import pytest
 
-from crewai_goodmem import (
+from goodmem_crewai import (
     GoodMemCreateSpaceTool,
     GoodMemKnowledgeStorage,
     GoodMemListEmbeddersTool,
     GoodMemListRerankersTool,
     GoodMemSearchTool,
 )
-from crewai_goodmem._typing import GoodmemClient
-from crewai_goodmem.filters import from_mapping
+from goodmem_crewai._typing import GoodmemClient
+from goodmem_crewai.filters import from_mapping
 
 from .conftest import chunk_event, memory_event, ndjson, status_event
 

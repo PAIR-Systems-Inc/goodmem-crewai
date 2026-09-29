@@ -50,14 +50,14 @@ Issues = "https://github.com/PAIR-Systems-Inc/goodmem-crewai/issues"
 Changelog = "https://github.com/PAIR-Systems-Inc/goodmem-crewai/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
-path = "src/crewai_goodmem/_version.py"
+path = "src/goodmem_crewai/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/crewai_goodmem"]
+packages = ["src/goodmem_crewai"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/crewai_goodmem",
+    "src/goodmem_crewai",
     "tests",
     "examples",
     "README.md",

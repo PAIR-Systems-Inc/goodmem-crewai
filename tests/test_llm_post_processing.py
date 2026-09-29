@@ -19,7 +19,7 @@ from typing import Any
 from crewai.tools.tool_failure import ToolFailure, ToolFailureReason
 import pytest
 
-from crewai_goodmem import GoodMemKnowledgeStorage, GoodMemSearchTool
+from goodmem_crewai import GoodMemKnowledgeStorage, GoodMemSearchTool
 
 from .conftest import REAL_VECTOR_SCORE, chunk_event, memory_event, ndjson
 
