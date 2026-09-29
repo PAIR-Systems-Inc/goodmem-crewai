@@ -1,10 +1,10 @@
 """GoodMem tools and knowledge storage for CrewAI."""
 
-from crewai_goodmem._connection import GoodMemConnection
-from crewai_goodmem._uploads import GoodMemUploadError
-from crewai_goodmem._version import __version__
-from crewai_goodmem.knowledge import GoodMemIngestionError, GoodMemKnowledgeStorage
-from crewai_goodmem.tools import (
+from goodmem_crewai._connection import GoodMemConnection
+from goodmem_crewai._uploads import GoodMemUploadError
+from goodmem_crewai._version import __version__
+from goodmem_crewai.knowledge import GoodMemIngestionError, GoodMemKnowledgeStorage
+from goodmem_crewai.tools import (
     GoodMemCreateMemoryTool,
     GoodMemCreateSpaceTool,
     GoodMemDeleteMemoryTool,

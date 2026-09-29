@@ -22,7 +22,7 @@ import uuid
 from crewai.tools.tool_failure import ToolFailure
 from goodmem import Goodmem
 
-from crewai_goodmem import (
+from goodmem_crewai import (
     GoodMemCreateMemoryTool,
     GoodMemKnowledgeStorage,
     GoodMemSearchTool,

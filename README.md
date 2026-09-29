@@ -1,4 +1,4 @@
-# crewai-goodmem
+# goodmem-crewai
 
 GoodMem knowledge storage and RAG tools for [CrewAI](https://crewai.com).
 
@@ -10,7 +10,7 @@ as tools an agent can call directly.
 ## Install
 
 ```bash
-pip install crewai-goodmem
+pip install goodmem-crewai
 ```
 
 Python 3.11–3.13, CrewAI 1.15.9+. Runtime dependencies are `crewai` and the
@@ -23,7 +23,7 @@ inject a configured `Goodmem` client.
 
 ```python
 from crewai import Agent, Crew, Knowledge, Task
-from crewai_goodmem import GoodMemKnowledgeStorage
+from goodmem_crewai import GoodMemKnowledgeStorage
 
 storage = GoodMemKnowledgeStorage(space_id="<space-id>", reranker_id="<reranker-id>")
 knowledge = Knowledge(collection_name="handbook", sources=[], storage=storage)
@@ -47,7 +47,7 @@ mid-run.
 
 ```python
 from crewai import Agent
-from crewai_goodmem import GoodMemSearchTool
+from goodmem_crewai import GoodMemSearchTool
 
 search = GoodMemSearchTool(
     space_ids=["<space-id>"],

@@ -57,8 +57,8 @@ jobs:
       - name: Verify wheel installs in a clean env
         run: |
           uv venv .venv-smoke --python ${{ matrix.python-version }}
-          uv pip install --python .venv-smoke/bin/python dist/crewai_goodmem-*.whl
-          .venv-smoke/bin/python -c "from crewai_goodmem import GoodMemKnowledgeStorage, GoodMemSearchTool, __version__; print(f'crewai-goodmem {__version__} OK')"
+          uv pip install --python .venv-smoke/bin/python dist/goodmem_crewai-*.whl
+          .venv-smoke/bin/python -c "from goodmem_crewai import GoodMemKnowledgeStorage, GoodMemSearchTool, __version__; print(f'goodmem-crewai {__version__} OK')"
 
   floor:
     # The declared minimums must really work: crewai>=1.15 once admitted
@@ -92,7 +92,7 @@ jobs:
           uv venv .venv-floor --python 3.11
           uv pip install --python .venv-floor/bin/python \
             --resolution lowest --only-binary :all: \
-            dist-floor/crewai_goodmem-*.whl "pytest>=8"
+            dist-floor/goodmem_crewai-*.whl "pytest>=8"
 
       - name: Check the floors were installed and the wheel imports
         run: |
@@ -102,7 +102,7 @@ jobs:
           import tomllib
           from importlib.metadata import version
 
-          import crewai_goodmem
+          import goodmem_crewai
 
           deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["dependencies"]
           floors = dict(re.fullmatch(r"([A-Za-z0-9_.-]+)>=([0-9.]+)", d).groups() for d in deps)
@@ -110,9 +110,9 @@ jobs:
               installed = version(name)
               print(f"{name}: floor {floor}, installed {installed}")
               assert installed == floor, f"{name} {installed} is not the declared floor {floor}"
-          where = pathlib.Path(crewai_goodmem.__file__).resolve()
+          where = pathlib.Path(goodmem_crewai.__file__).resolve()
           assert ".venv-floor" in where.parts, f"imported {where}, not the installed wheel"
-          print(f"crewai_goodmem {crewai_goodmem.__version__} imported from {where}")
+          print(f"goodmem_crewai {goodmem_crewai.__version__} imported from {where}")
           EOF
 
       - name: Offline suite against the floor

@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodmem import Goodmem
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from crewai_goodmem._typing import GoodmemClient
+from goodmem_crewai._typing import GoodmemClient
 
 
 DEFAULT_TIMEOUT = 60.0

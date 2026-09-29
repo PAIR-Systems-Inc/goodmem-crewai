@@ -20,16 +20,16 @@ from goodmem.errors import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
-from crewai_goodmem._connection import GoodMemConnection
-from crewai_goodmem._ids import UuidStr, require_uuid
-from crewai_goodmem._results import (
+from goodmem_crewai._connection import GoodMemConnection
+from goodmem_crewai._ids import UuidStr, require_uuid
+from goodmem_crewai._results import (
     abstract_reply,
     classify,
     hits_from_events,
     was_reranked,
 )
-from crewai_goodmem._uploads import GoodMemUploadError, resolve_upload_path
-from crewai_goodmem.filters import combine, from_mapping
+from goodmem_crewai._uploads import GoodMemUploadError, resolve_upload_path
+from goodmem_crewai.filters import combine, from_mapping
 
 
 _GOODMEM_ENV_VARS = [

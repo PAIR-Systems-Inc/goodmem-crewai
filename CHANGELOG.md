@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-29
+
+### Changed
+
+- **Breaking: renamed to `goodmem-crewai` (import `goodmem_crewai`).**
+  This follows the goodmem-<framework> naming used by goodmem-adk and
+  goodmem-semantic-kernel. Install with `pip install goodmem-crewai` and
+  update imports from `crewai_goodmem` to `goodmem_crewai`. No other code
+  changes.
+
 ## [0.3.0] — 2026-09-29
 
 ### Added
@@ -230,7 +240,8 @@ Requires CrewAI 1.15+.
 | Create-space reused a same-named space | Creation creates; a collision is a conflict |
 | `requests` | the official `goodmem` SDK |
 
-[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.1...v0.2.0
