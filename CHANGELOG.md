@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`GoodMemSearchTool(llm_id=...)`: an answer from a GoodMem LLM, opt-in.**
+  GoodMem can run an LLM over the passages it retrieved and stream back a
+  grounded answer, but 0.2.1 had no way to ask for one: `llm_id` was not a
+  field, and pydantic dropped it without a word, so
+  `GoodMemSearchTool(..., llm_id="<id>")` sent no post-processor and returned
+  no answer. `llm_id` is now a developer-set field (not in the model's
+  argument schema, like `reranker_id`). It must be a UUID and is refused with
+  `INVALID_INPUT` before any request otherwise. When set, it goes into the
+  retrieval post-processor next to `reranker_id`, with `max_results=k`, and
+  the tool's output carries the answer as `abstract_reply` (`text`,
+  `relevance_score`, `result_set_id`) beside the passages; unset, the request
+  is unchanged. If the LLM fails (`SUMMARIZATION_FAILED`, and `NOT_FOUND` for
+  an id that does not exist) the passages are kept and the output is
+  `partial` with those statuses, never a failure. Scores are untouched: an
+  LLM does not rerank. `GoodMemKnowledgeStorage` deliberately gets no
+  `llm_id`: CrewAI reads only each result's `content` and queries knowledge
+  on every task, so the answer would be generated each time and discarded.
+
 ## [0.2.1] — 2026-09-25
 
 ### Security

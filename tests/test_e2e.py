@@ -37,6 +37,8 @@ pytestmark = [
 ]
 
 EMBEDDER = os.environ.get("GOODMEM_EMBEDDER_ID", "")
+LLM = os.environ.get("GOODMEM_LLM_ID", "")
+MISSING = "00000000-0000-0000-0000-000000000000"
 
 
 def _verify() -> bool:
@@ -153,6 +155,38 @@ def test_knowledge_storage_keeps_fallback_hits_when_the_reranker_fails(
         assert result["metadata"]["score_kind"] == "vector"
         assert result["metadata"]["goodmem_partial"] is True
         assert result["score"] == -result["metadata"]["raw_score"]
+
+
+@pytest.mark.skipif(not LLM, reason="GOODMEM_LLM_ID not set")
+def test_llm_answer_is_returned_with_the_passages(indexed_space, conn):
+    """0.2.1 had no llm_id: the answer could not be asked for."""
+    result = GoodMemSearchTool(space_ids=[indexed_space], llm_id=LLM, **conn)._run(
+        query="What is the internal audit codeword?"
+    )
+    assert not isinstance(result, ToolFailure), result
+    payload = json.loads(result)
+
+    assert payload["partial"] is False, payload.get("statuses")
+    assert "zephyr" in payload["abstract_reply"]["text"].lower(), payload
+    assert "ZEPHYR-7" in payload["results"][0]["chunk_text"]
+    # An LLM does not rerank; the scores are the vector search's.
+    assert {h["score_kind"] for h in payload["results"]} == {"vector"}
+
+
+def test_missing_llm_keeps_the_hits_and_reports_why(indexed_space, conn):
+    """Retrieval status contract: a failed LLM is partial, never a failure."""
+    result = GoodMemSearchTool(space_ids=[indexed_space], llm_id=MISSING, **conn)._run(
+        query="audit codeword"
+    )
+    assert not isinstance(result, ToolFailure), result
+    payload = json.loads(result)
+
+    assert payload["partial"] is True
+    codes = [s.get("code") for s in payload["statuses"]]
+    assert {"NOT_FOUND", "SUMMARIZATION_FAILED"} <= set(codes), codes
+    assert payload["total_results"] >= 1, "the passages are kept"
+    assert "ZEPHYR-7" in payload["results"][0]["chunk_text"]
+    assert "abstract_reply" not in payload
 
 
 def test_boolean_metadata_filter_matches_a_stored_boolean(space, conn):
