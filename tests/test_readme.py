@@ -25,6 +25,7 @@ _FENCE = re.compile(r"^```python\n(.*?)^```", re.DOTALL | re.MULTILINE)
 PLACEHOLDERS = {
     "<space-id>": "01a0ace4-678d-7459-aa91-b6ccd46d97d8",
     "<reranker-id>": "019cfd1c-c033-7517-b7de-f73941a0464c",
+    "<llm-id>": "019cfd9f-0963-76f9-b069-4cde19a64ba8",
 }
 
 
@@ -83,6 +84,9 @@ def test_readme_snippet_runs(readme_env: RecordingServer, line: int, source: str
         body = readme_env.body()
         assert body["message"] == "refund approval"
         assert body["spaceKeys"][0]["spaceId"] == PLACEHOLDERS["<space-id>"]
+        if namespace["search"].llm_id is not None:
+            config = body["postProcessor"]["config"]
+            assert config["llm_id"] == PLACEHOLDERS["<llm-id>"]
         assert "agent" in namespace
     if "knowledge" not in namespace and "search" not in namespace:
         pytest.fail(f"README.md:{line}: no snippet check covers this block")

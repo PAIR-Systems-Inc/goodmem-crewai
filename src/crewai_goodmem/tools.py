@@ -67,7 +67,16 @@ def _failure(
     elif isinstance(exc, RateLimitError):
         reason, code, retryable = ToolFailureReason.USAGE_LIMIT, "rate_limited", True
     elif isinstance(exc, GoodMemError):
-        reason, code, retryable = ToolFailureReason.TOOL_REPORTED, "goodmem_error", True
+        # A 4xx (400 "Embedder not found", 422) rejects the request itself:
+        # sending it again gets the same answer. Only a 5xx or a transport
+        # failure (no status at all) may clear up on a retry.
+        status = getattr(exc, "status_code", None)
+        client_error = isinstance(status, int) and 400 <= status < 500
+        reason, code, retryable = (
+            ToolFailureReason.TOOL_REPORTED,
+            "goodmem_error",
+            not client_error,
+        )
     else:
         reason, code, retryable = ToolFailureReason.EXCEPTION, "unexpected", False
 
@@ -103,9 +112,15 @@ class SearchSchema(BaseModel):
 class GoodMemSearchTool(_GoodMemBaseTool):
     """Semantic search over spaces the developer configured.
 
-    The agent supplies only a query. Spaces, result count, reranking and
-    metadata filters are set here, by you, so a model cannot redirect the
-    search to another space or change retrieval behaviour mid-run.
+    The agent supplies only a query. Spaces, result count, reranking, the
+    answering LLM and metadata filters are set here, by you, so a model cannot
+    redirect the search to another space or change retrieval behaviour mid-run.
+
+    With ``llm_id`` set, GoodMem runs that LLM over the retrieved passages and
+    the output carries its answer as ``abstract_reply``. The passages are
+    returned either way. If the LLM fails, the passages are still returned,
+    with ``partial`` and the server's statuses (``SUMMARIZATION_FAILED``, plus
+    ``NOT_FOUND`` for an LLM that does not exist) and no ``abstract_reply``.
     """
 
     name: str = "GoodMemSearch"
@@ -119,6 +134,7 @@ class GoodMemSearchTool(_GoodMemBaseTool):
     k: int = Field(default=5, gt=0)
     fetch_k: int | None = Field(default=None, gt=0)
     reranker_id: str | None = None
+    llm_id: str | None = None
     filter: str | None = None
     metadata_filter: dict[str, Any] | None = None
 
@@ -134,6 +150,9 @@ class GoodMemSearchTool(_GoodMemBaseTool):
                 require_uuid(self.reranker_id, "reranker_id")
                 if self.reranker_id is not None
                 else None
+            )
+            llm_id = (
+                require_uuid(self.llm_id, "llm_id") if self.llm_id is not None else None
             )
             expression = combine(
                 self.filter,
@@ -156,6 +175,11 @@ class GoodMemSearchTool(_GoodMemBaseTool):
             ]
         if reranker_id is not None:
             kwargs["reranker_id"] = reranker_id
+        if llm_id is not None:
+            # The SDK puts it next to reranker_id in the post-processor config.
+            kwargs["llm_id"] = llm_id
+        if reranker_id is not None or llm_id is not None:
+            # The post-processor otherwise keeps the server's default of 10.
             kwargs["max_results"] = self.k
 
         try:
@@ -164,9 +188,12 @@ class GoodMemSearchTool(_GoodMemBaseTool):
         except Exception as exc:
             return _failure(exc, "Search failed")
 
+        # A failed LLM (SUMMARIZATION_FAILED, NOT_FOUND) is a problem status
+        # like any other: the hits are kept and the result is marked partial.
         statuses, degraded = classify(events)
         # A failed reranker still returns the vector hits: label them by what
-        # the server did, not by what was configured.
+        # the server did, not by what was configured. An LLM does not rerank,
+        # so llm_id plays no part in this.
         reranked = was_reranked(events, requested=reranker_id is not None)
         hits = hits_from_events(events, reranked=reranked)[: self.k]
 

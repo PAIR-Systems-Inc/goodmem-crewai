@@ -41,8 +41,9 @@ agent = Agent(
 ## As an agent tool
 
 The search tool takes only a query from the model. Which spaces it searches,
-how many results it returns, whether it reranks and any metadata filter are
-set by you, so a model cannot redirect the search mid-run.
+how many results it returns, whether it reranks, whether an LLM answers and
+any metadata filter are set by you, so a model cannot redirect the search
+mid-run.
 
 ```python
 from crewai import Agent
@@ -52,6 +53,7 @@ search = GoodMemSearchTool(
     space_ids=["<space-id>"],
     k=5,
     reranker_id="<reranker-id>",          # optional
+    llm_id="<llm-id>",                    # optional: an answer from an LLM
     metadata_filter={"category": "policy"},  # optional, escaped for you
 )
 
@@ -63,6 +65,29 @@ agent = Agent(role="Researcher", goal="Answer from the knowledge base",
 a `bool` as a boolean and an `int`/`float` as a number, so `{"archived": True}`
 matches a stored `true`. Any other value (`None`, a list, a dict) is refused
 with `ValueError`; use `filter` to pass an expression directly.
+
+### An answer from an LLM (opt-in)
+
+Set `llm_id` to the id of an LLM registered in GoodMem and the server runs it
+over the passages it retrieved. The tool's output then carries the answer as
+`abstract_reply` (`{"text": "...", "relevance_score": ..., "result_set_id":
+"..."}`) next to `results`, which are returned as usual. It is off unless you
+set it, and it is a field on the tool, not an argument: the model cannot turn
+it on or pick a different LLM. Like every id it must be a UUID; anything else
+is refused with `INVALID_INPUT` before a request is made. An LLM does not
+rerank, so `score` and `score_kind` are the same with or without one.
+
+If the LLM fails — its provider refuses the call, or no LLM has that id — the
+passages are still returned, with `partial: true`, the server's `statuses`
+(`SUMMARIZATION_FAILED`, plus `NOT_FOUND` for an id that does not exist) and
+no `abstract_reply`. Nothing is raised.
+
+`GoodMemKnowledgeStorage` has no `llm_id`. CrewAI puts only each result's
+`content` into the agent's prompt, and runs a knowledge search for every
+task, so an answer generated there would be paid for each time and then
+discarded. Give the agent `GoodMemSearchTool` with `llm_id` instead.
+
+### Partial results
 
 Results carry `partial` and `statuses`. If part of a search failed — a reranker
 was unavailable, one space was unreachable — you get the usable passages *and*
@@ -128,12 +153,13 @@ silent empty list. Calibrate the threshold for the reranker you use.
 uv sync --extra dev
 uv run ruff check . && uv run ruff format --check . && uv run mypy src
 uv run pytest -m "not e2e"    # offline: the SDK over a mock transport and a local HTTP server
-GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… GOODMEM_VERIFY_SSL=false uv run pytest -m e2e
+GOODMEM_BASE_URL=… GOODMEM_API_KEY=… GOODMEM_EMBEDDER_ID=… GOODMEM_LLM_ID=… GOODMEM_VERIFY_SSL=false uv run pytest -m e2e
 ```
 
 `tests/test_readme.py` runs every Python snippet in this README, as written,
 against a local mock server; CI runs it as its own step.
 
 `GOODMEM_VERIFY_SSL=false` is for a local server with a self-signed certificate.
+`GOODMEM_LLM_ID` is optional; without it the live LLM-answer test is skipped.
 
 Apache-2.0.

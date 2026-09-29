@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-29
+
+### Added
+
+- **`GoodMemSearchTool(llm_id=...)`: an answer from a GoodMem LLM, opt-in.**
+  GoodMem can run an LLM over the passages it retrieved and stream back a
+  grounded answer, but 0.2.1 had no way to ask for one: `llm_id` was not a
+  field, and pydantic dropped it without a word, so
+  `GoodMemSearchTool(..., llm_id="<id>")` sent no post-processor and returned
+  no answer. `llm_id` is now a developer-set field (not in the model's
+  argument schema, like `reranker_id`). It must be a UUID and is refused with
+  `INVALID_INPUT` before any request otherwise. When set, it goes into the
+  retrieval post-processor next to `reranker_id`, with `max_results=k`, and
+  the tool's output carries the answer as `abstract_reply` (`text`,
+  `relevance_score`, `result_set_id`) beside the passages; unset, the request
+  is unchanged. If the LLM fails (`SUMMARIZATION_FAILED`, and `NOT_FOUND` for
+  an id that does not exist) the passages are kept and the output is
+  `partial` with those statuses, never a failure. Scores are untouched: an
+  LLM does not rerank. `GoodMemKnowledgeStorage` deliberately gets no
+  `llm_id`: CrewAI reads only each result's `content` and queries knowledge
+  on every task, so the answer would be generated each time and discarded.
+
+### Fixed
+
+- **A rejected request is no longer reported as retryable.** Every
+  `GoodMemError` without a more specific mapping became
+  `ToolFailure(code="goodmem_error", retryable=True)`, including 4xx
+  responses. Live, `GoodMemCreateSpaceTool` with a nonexistent embedder got
+  `HTTP 400: {"error":"Embedder not found"}` and reported it as retryable,
+  inviting the same bad request again. A 4xx (400, 422, or any other client
+  error) is now `retryable=False`; a 5xx or a transport failure stays
+  retryable. The `code` is unchanged.
+
 ## [0.2.1] — 2026-09-25
 
 ### Security
@@ -197,7 +230,8 @@ Requires CrewAI 1.15+.
 | Create-space reused a same-named space | Creation creates; a collision is a conflict |
 | `requests` | the official `goodmem` SDK |
 
-[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/PAIR-Systems-Inc/goodmem-crewai/compare/v0.1.0...v0.1.1

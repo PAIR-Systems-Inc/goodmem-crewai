@@ -184,6 +184,16 @@ ENTRY_POINTS = [
         tool=True,
     ),
     EntryPoint(
+        "GoodMemSearchTool.llm_id",
+        "llm_id",
+        lambda ctx, v: GoodMemSearchTool(space_ids=[OTHER], llm_id=v, **ctx.conn).run(
+            query="q"
+        ),
+        "POST",
+        "/v1/memories:retrieve",
+        tool=True,
+    ),
+    EntryPoint(
         "GoodMemCreateSpaceTool.embedder_id",
         "embedder_id",
         lambda ctx, v: GoodMemCreateSpaceTool(embedder_id=v, **ctx.conn).run(name="n"),
