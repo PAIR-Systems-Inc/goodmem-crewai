@@ -18,6 +18,7 @@ import httpx
 import pytest
 
 from crewai_goodmem import (
+    GoodMemCreateSpaceTool,
     GoodMemKnowledgeStorage,
     GoodMemListEmbeddersTool,
     GoodMemListRerankersTool,
@@ -318,3 +319,45 @@ def test_search_tool_refuses_an_unfilterable_value_without_a_request(client, rec
     assert isinstance(result, ToolFailure)
     assert result.code == "invalid_input"
     assert recorder.requests == []
+
+
+# ------------------------------------------------ retryable only when it may pass
+# live: GoodMemCreateSpaceTool(embedder_id=<nonexistent UUID>) got HTTP 400
+# {"error":"Embedder not found"} and 0.2.1 returned code="goodmem_error" with
+# retryable=True, inviting the framework to send the same bad request again.
+EMBEDDER_NOT_FOUND = (
+    '{"error":"Embedder not found","status":400,"timestamp":1790656510655}'
+)
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "retryable"),
+    [
+        pytest.param(400, EMBEDDER_NOT_FOUND, False, id="400-embedder-not-found"),
+        pytest.param(422, '{"error":"bad field"}', False, id="422"),
+        pytest.param(413, '{"error":"too large"}', False, id="413-unmapped-4xx"),
+        pytest.param(500, '{"error":"boom"}', True, id="500"),
+        pytest.param(503, '{"error":"not accepting new requests"}', True, id="503"),
+    ],
+)
+def test_a_client_error_is_not_retryable(client, recorder, status, body, retryable):
+    recorder.route("POST", "/v1/spaces", httpx.Response(status, text=body))
+    result = GoodMemCreateSpaceTool(client=client, embedder_id=OWNER)._run(name="n")
+
+    assert isinstance(result, ToolFailure), result
+    assert result.code == "goodmem_error"
+    assert result.retryable is retryable
+    assert f"HTTP {status}" in result.message
+    assert result.details["server_response"] == body
+
+
+def test_a_transport_failure_stays_retryable():
+    """No status at all (goodmem NetworkError): the next attempt may connect."""
+    tool = GoodMemCreateSpaceTool(
+        base_url="http://127.0.0.1:1", api_key="k", embedder_id=OWNER, timeout=5.0
+    )
+    result = tool._run(name="n")
+
+    assert isinstance(result, ToolFailure), result
+    assert result.code == "goodmem_error"
+    assert result.retryable is True

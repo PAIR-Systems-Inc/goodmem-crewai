@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `llm_id`: CrewAI reads only each result's `content` and queries knowledge
   on every task, so the answer would be generated each time and discarded.
 
+### Fixed
+
+- **A rejected request is no longer reported as retryable.** Every
+  `GoodMemError` without a more specific mapping became
+  `ToolFailure(code="goodmem_error", retryable=True)`, including 4xx
+  responses. Live, `GoodMemCreateSpaceTool` with a nonexistent embedder got
+  `HTTP 400: {"error":"Embedder not found"}` and reported it as retryable,
+  inviting the same bad request again. A 4xx (400, 422, or any other client
+  error) is now `retryable=False`; a 5xx or a transport failure stays
+  retryable. The `code` is unchanged.
+
 ## [0.2.1] — 2026-09-25
 
 ### Security

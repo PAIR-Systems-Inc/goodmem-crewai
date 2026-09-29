@@ -67,7 +67,16 @@ def _failure(
     elif isinstance(exc, RateLimitError):
         reason, code, retryable = ToolFailureReason.USAGE_LIMIT, "rate_limited", True
     elif isinstance(exc, GoodMemError):
-        reason, code, retryable = ToolFailureReason.TOOL_REPORTED, "goodmem_error", True
+        # A 4xx (400 "Embedder not found", 422) rejects the request itself:
+        # sending it again gets the same answer. Only a 5xx or a transport
+        # failure (no status at all) may clear up on a retry.
+        status = getattr(exc, "status_code", None)
+        client_error = isinstance(status, int) and 400 <= status < 500
+        reason, code, retryable = (
+            ToolFailureReason.TOOL_REPORTED,
+            "goodmem_error",
+            not client_error,
+        )
     else:
         reason, code, retryable = ToolFailureReason.EXCEPTION, "unexpected", False
 
