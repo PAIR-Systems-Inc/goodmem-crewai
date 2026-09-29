@@ -1,4 +1,4 @@
-# crewai-goodmem
+# goodmem-crewai
 
 GoodMem knowledge storage and RAG tools for [CrewAI](https://crewai.com).
 
@@ -10,8 +10,12 @@ as tools an agent can call directly.
 ## Install
 
 ```bash
-pip install crewai-goodmem
+pip install goodmem-crewai
 ```
+
+> This package was previously published on PyPI as `crewai-goodmem` (last
+> version on that name: 0.3.0). The import name is unchanged:
+> `from crewai_goodmem import ...` keeps working.
 
 Python 3.11–3.13, CrewAI 1.15.9+. Runtime dependencies are `crewai` and the
 official `goodmem` SDK (0.1.34+).

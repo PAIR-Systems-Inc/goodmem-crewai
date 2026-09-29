@@ -57,8 +57,8 @@ jobs:
       - name: Verify wheel installs in a clean env
         run: |
           uv venv .venv-smoke --python ${{ matrix.python-version }}
-          uv pip install --python .venv-smoke/bin/python dist/crewai_goodmem-*.whl
-          .venv-smoke/bin/python -c "from crewai_goodmem import GoodMemKnowledgeStorage, GoodMemSearchTool, __version__; print(f'crewai-goodmem {__version__} OK')"
+          uv pip install --python .venv-smoke/bin/python dist/goodmem_crewai-*.whl
+          .venv-smoke/bin/python -c "from crewai_goodmem import GoodMemKnowledgeStorage, GoodMemSearchTool, __version__; print(f'goodmem-crewai {__version__} OK')"
 
   floor:
     # The declared minimums must really work: crewai>=1.15 once admitted
@@ -92,7 +92,7 @@ jobs:
           uv venv .venv-floor --python 3.11
           uv pip install --python .venv-floor/bin/python \
             --resolution lowest --only-binary :all: \
-            dist-floor/crewai_goodmem-*.whl "pytest>=8"
+            dist-floor/goodmem_crewai-*.whl "pytest>=8"
 
       - name: Check the floors were installed and the wheel imports
         run: |

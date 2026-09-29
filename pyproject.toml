@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "crewai-goodmem"
+name = "goodmem-crewai"
 description = "GoodMem knowledge storage and RAG tools for CrewAI agents"
 readme = "README.md"
 license = { text = "Apache-2.0" }
