@@ -13,9 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The PyPI distribution is renamed from `crewai-goodmem` to
   `goodmem-crewai`.** The package moved into the PAIR Systems PyPI
-  organization, where it is published under the new name. Install it with
-  `pip install goodmem-crewai`; `crewai-goodmem` stays at 0.3.0. The import
+  organization under the `goodmem-<framework>` naming used by `goodmem-adk`
+  and `goodmem-semantic-kernel`. `crewai-goodmem` stays at 0.3.0. The import
   package is unchanged: `from crewai_goodmem import ...` works as before.
+  Both distributions ship `crewai_goodmem` and would overwrite each other's
+  files, so remove the old one when switching:
+  `pip uninstall -y crewai-goodmem && pip install goodmem-crewai`.
   No code changes.
 
 ## [0.3.0] — 2026-09-29

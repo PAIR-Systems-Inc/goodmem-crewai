@@ -15,7 +15,13 @@ pip install goodmem-crewai
 
 > This package was previously published on PyPI as `crewai-goodmem` (last
 > version on that name: 0.3.0). The import name is unchanged:
-> `from crewai_goodmem import ...` keeps working.
+> `from crewai_goodmem import ...` keeps working. Both distributions ship the
+> same `crewai_goodmem` package and would overwrite each other's files, so
+> uninstall the old one first:
+>
+> ```bash
+> pip uninstall -y crewai-goodmem && pip install goodmem-crewai
+> ```
 
 Python 3.11–3.13, CrewAI 1.15.9+. Runtime dependencies are `crewai` and the
 official `goodmem` SDK (0.1.34+).
